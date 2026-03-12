@@ -171,29 +171,33 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
     Core agentic pipeline:
     PLAN → ANALYZE (extract signals) → MATCH (vector DB) → SCORE → REPORT
     """
-    logger.info(f"[PLAN] Analyzing spec: {spec_name}")
-    logger.info(f"[PLAN] Paths: {len(spec.get('paths', {}))}, "
-                f"Schemas: {len(spec.get('components', {}).get('schemas', {}) or {})}")
+    try:
+        logger.info(f"[PLAN] Analyzing spec: {spec_name}")
+        logger.info(f"[PLAN] Paths: {len(spec.get('paths', {}))}, "
+                    f"Schemas: {len(spec.get('components', {}).get('schemas', {}) or {})}")
 
-    # ANALYZE: extract signals
-    extractor = OpenAPISignalExtractor(spec)
-    signals   = extractor.extract_all()
-    logger.info(f"[ANALYZE] Extracted {len(signals)} signals")
+        # ANALYZE: extract signals
+        extractor = OpenAPISignalExtractor(spec)
+        signals   = extractor.extract_all()
+        logger.info(f"[ANALYZE] Extracted {len(signals)} signals")
 
-    # MATCH: query vector DB
-    matcher  = RuleMatcher(store, n_results_per_signal=3)
-    findings = matcher.match_signals(signals)
-    logger.info(f"[MATCH] Matched {len(findings)} finding groups")
+        # MATCH: query vector DB
+        matcher  = RuleMatcher(store, n_results_per_signal=3)
+        findings = matcher.match_signals(signals)
+        logger.info(f"[MATCH] Matched {len(findings)} finding groups")
 
-    # SCORE: compute health score
-    health = compute_health_score(findings)
-    logger.info(f"[SCORE] Health: {health.total}/100 ({health.band})")
+        # SCORE: compute health score
+        health = compute_health_score(findings)
+        logger.info(f"[SCORE] Health: {health.total}/100 ({health.band})")
 
-    # REPORT
-    report = build_report(spec_name, health, findings)
-    logger.info(f"[REPORT] Generated report with {len(report['findings'])} findings")
+        # REPORT
+        report = build_report(spec_name, health, findings)
+        logger.info(f"[REPORT] Generated report with {len(report['findings'])} findings")
 
-    return report
+        return report
+    except Exception as e:
+        logger.error(f"[ERROR] Pipeline failed: {str(e)}", exc_info=True)
+        raise
 
 
 def _parse_spec(content: bytes, filename: str) -> dict:

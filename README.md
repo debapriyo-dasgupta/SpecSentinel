@@ -18,6 +18,7 @@ SpecSentinel is an intelligent API governance tool that automatically analyzes O
 - ✅ **Weighted Scoring** - 0-100 health score with category breakdown
 - ✅ **Auto Rule Refresh** - Weekly updates from OWASP, OpenAPI, RFC sources
 - ✅ **REST API** - FastAPI server with multiple endpoints
+- ✅ **Web Frontend** - Modern, responsive UI for easy analysis
 - ✅ **Detailed Reports** - JSON and text format outputs
 
 ---
@@ -42,6 +43,15 @@ SpecSentinel_IBM_Hackathon/
 │   │
 │   └── api/                      # REST API
 │       └── app.py               # FastAPI application
+│
+├── frontend/                     # Web Frontend
+│   ├── index.html               # Main HTML page
+│   ├── css/
+│   │   └── styles.css           # Styles and animations
+│   ├── js/
+│   │   └── app.js               # Frontend logic & API integration
+│   ├── README.md                # Frontend documentation
+│   └── QUICKSTART.md            # Quick start guide
 │
 ├── data/                         # Data files
 │   └── rules/                   # Seed rule files
@@ -122,6 +132,46 @@ This will:
 #### Option 2: Start the API Server
 
 ```bash
+
+---
+
+## 🌐 Web Frontend
+
+SpecSentinel includes a modern web-based frontend for easy API specification analysis.
+
+### Quick Start
+
+**Terminal 1 - Start Backend:**
+```bash
+cd src/api
+python app.py
+```
+
+**Terminal 2 - Start Frontend:**
+```bash
+cd frontend
+python -m http.server 8080
+```
+
+**Open Browser:**
+```
+http://localhost:8080
+```
+
+### Features
+
+- 📁 **File Upload** - Drag & drop or browse for YAML/JSON files
+- 📝 **Direct Paste** - Paste your OpenAPI spec directly
+- 📊 **Visual Reports** - Interactive health score with animated charts
+- 🔍 **Filterable Findings** - Filter by severity (Critical/High/Medium/Low)
+- 💾 **Export Options** - Download JSON or text reports
+- 📱 **Responsive Design** - Works on desktop, tablet, and mobile
+
+### Documentation
+
+- [Frontend README](frontend/README.md) - Complete documentation
+- [Quick Start Guide](frontend/QUICKSTART.md) - Get started in 5 minutes
+
 cd src/api
 python app.py
 ```

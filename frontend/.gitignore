@@ -1,0 +1,26 @@
+# Frontend specific ignores
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Node modules (if using npm for dev tools)
+node_modules/
+
+# Build outputs (if adding build process later)
+dist/
+build/

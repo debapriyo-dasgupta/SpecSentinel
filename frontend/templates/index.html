@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpecSentinel - API Health Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">🛡️</span>
+                    <h1>SpecSentinel</h1>
+                </div>
+                <p class="tagline">Agentic AI API Health, Compliance & Governance Bot</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <!-- Upload Section -->
+            <section class="upload-section">
+                <div class="card">
+                    <h2>Analyze Your API Specification</h2>
+                    <p class="section-description">Upload your OpenAPI specification (YAML or JSON) or paste it directly
+                        to get a comprehensive health report.</p>
+
+                    <!-- Tab Navigation -->
+                    <div class="tab-navigation">
+                        <button class="tab-btn active" data-tab="upload">
+                            <span class="tab-icon">📁</span>
+                            Upload File
+                        </button>
+                        <button class="tab-btn" data-tab="paste">
+                            <span class="tab-icon">📝</span>
+                            Paste Spec
+                        </button>
+                    </div>
+
+                    <!-- Upload Tab -->
+                    <div class="tab-content active" id="upload-tab">
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-icon">📤</div>
+                            <p class="upload-text">Drag & drop your OpenAPI spec here</p>
+                            <p class="upload-subtext">or</p>
+                            <label for="fileInput" class="btn btn-primary">
+                                Choose File
+                            </label>
+                            <input type="file" id="fileInput" accept=".yaml,.yml,.json" hidden>
+                            <p class="file-info">Supports YAML and JSON formats</p>
+                        </div>
+                        <div class="selected-file" id="selectedFile" style="display: none;">
+                            <span class="file-name" id="fileName"></span>
+                            <button class="btn-remove" id="removeFile">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- Paste Tab -->
+                    <div class="tab-content" id="paste-tab">
+                        <div class="paste-area">
+                            <label for="specInput" class="input-label">Paste your OpenAPI specification:</label>
+                            <textarea id="specInput" class="spec-textarea"
+                                placeholder="Paste your OpenAPI spec in YAML or JSON format here..."
+                                rows="12"></textarea>
+                            <div class="input-footer">
+                                <label for="specName" class="input-label-inline">Spec Name (optional):</label>
+                                <input type="text" id="specName" class="spec-name-input" placeholder="e.g., my-api-v1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Analyze Button -->
+                    <div class="action-buttons">
+                        <button class="btn btn-analyze" id="analyzeBtn">
+                            <span class="btn-icon">🔍</span>
+                            Analyze Specification
+                        </button>
+                        <button class="btn btn-secondary" id="clearBtn">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading Indicator -->
+            <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p class="loading-text">Analyzing your API specification...</p>
+                <p class="loading-subtext">This may take a few seconds</p>
+            </div>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <!-- Health Score and Category Breakdown - Side by Side -->
+                <div class="overview-grid">
+                    <!-- Health Score Card -->
+                    <div class="card health-card">
+                        <h2>Health Score</h2>
+                        <div class="health-score-container">
+                            <div class="score-circle">
+                                <svg class="score-ring" viewBox="0 0 200 200">
+                                    <circle class="score-ring-bg" cx="100" cy="100" r="85" />
+                                    <circle class="score-ring-fill" id="scoreRing" cx="100" cy="100" r="85" />
+                                </svg>
+                                <div class="score-value">
+                                    <span class="score-number" id="scoreNumber">0</span>
+                                    <span class="score-total">/100</span>
+                                </div>
+                            </div>
+                            <div class="score-details">
+                                <div class="score-band" id="scoreBand">
+                                    <span class="band-emoji" id="bandEmoji">⏳</span>
+                                    <span class="band-text" id="bandText">Analyzing...</span>
+                                </div>
+                                <p class="severity-hint">👆 Click on severity levels below to view details</p>
+                                <div class="score-stats">
+                                    <div class="stat-item clickable" data-severity="critical">
+                                        <span class="stat-label">Critical</span>
+                                        <span class="stat-value critical" id="criticalCount">0</span>
+                                    </div>
+                                    <div class="stat-item clickable" data-severity="high">
+                                        <span class="stat-label">High</span>
+                                        <span class="stat-value high" id="highCount">0</span>
+                                    </div>
+                                    <div class="stat-item clickable" data-severity="medium">
+                                        <span class="stat-label">Medium</span>
+                                        <span class="stat-value medium" id="mediumCount">0</span>
+                                    </div>
+                                    <div class="stat-item clickable" data-severity="low">
+                                        <span class="stat-label">Low</span>
+                                        <span class="stat-value low" id="lowCount">0</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category Breakdown -->
+                    <div class="card category-card">
+                        <h2>Category Breakdown</h2>
+                        <div class="category-breakdown" id="categoryBreakdown">
+                            <!-- Categories will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Slide-out Action Panel -->
+                <div class="action-panel" id="actionPanel">
+                    <div class="action-panel-trigger">
+                        <span class="trigger-icon">⚙️</span>
+                    </div>
+                    <div class="action-panel-content">
+                        <button class="btn btn-secondary" id="exportJsonBtn" title="Export JSON">
+                            <span class="btn-icon">📄</span>
+                            JSON
+                        </button>
+                        <button class="btn btn-secondary" id="exportTextBtn" title="Export Text Report">
+                            <span class="btn-icon">📝</span>
+                            Text
+                        </button>
+                        <button class="btn btn-primary" id="analyzeNewBtn" title="Analyze New Specification">
+                            <span class="btn-icon">🔄</span>
+                            New
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Severity Details Modal -->
+            <div class="modal-overlay" id="severityModal" style="display: none;">
+                <div class="modal-container">
+                    <div class="modal-header">
+                        <h2 id="modalTitle">Severity Details</h2>
+                        <button class="modal-close" id="modalClose">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- Findings Section -->
+                        <div class="modal-section">
+                            <h3>
+                                <span class="section-icon">🔍</span>
+                                Findings
+                                <span class="count-badge" id="modalFindingsCount">0</span>
+                            </h3>
+                            <div class="modal-findings-list" id="modalFindingsList">
+                                <!-- Findings will be inserted here -->
+                            </div>
+                        </div>
+
+                        <!-- Recommendations Section -->
+                        <div class="modal-section">
+                            <h3>
+                                <span class="section-icon">💡</span>
+                                Recommendations
+                                <span class="count-badge" id="modalRecommendationsCount">0</span>
+                            </h3>
+                            <div class="modal-recommendations-list" id="modalRecommendationsList">
+                                <!-- Recommendations will be inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" id="modalExportBtn">
+                            <span class="btn-icon">📄</span>
+                            Export This Severity
+                        </button>
+                        <button class="btn btn-primary" id="modalCloseBtn">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Section -->
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="card error-card">
+                    <div class="error-icon">⚠️</div>
+                    <h2>Analysis Failed</h2>
+                    <p class="error-message" id="errorMessage"></p>
+                    <button class="btn btn-primary" id="retryBtn">
+                        Try Again
+                    </button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2026 SpecSentinel - IBM Hackathon Project</p>
+                <div class="footer-links">
+                    <a href="#" id="apiDocsLink">API Documentation</a>
+                    <a href="#" id="githubLink">GitHub</a>
+                    <a href="#" id="aboutLink">About</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
+</html>
