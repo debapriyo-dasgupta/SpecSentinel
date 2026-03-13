@@ -42,6 +42,10 @@ env/
 # Test outputs
 report_output.json
 tests/report_output.json
+
+# Logs
+logs/*.log
+logs/*.log.*
 *.log
 
 # Environment variables

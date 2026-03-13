@@ -92,11 +92,48 @@
                 </div>
             </section>
 
-            <!-- Loading Indicator -->
+            <!-- Loading Indicator with Pipeline Progress -->
             <div class="loading-overlay" id="loadingOverlay" style="display: none;">
                 <div class="loading-spinner"></div>
                 <p class="loading-text">Analyzing your API specification...</p>
-                <p class="loading-subtext">This may take a few seconds</p>
+                <div class="pipeline-progress" id="pipelineProgress" style="display: none;">
+                    <div class="progress-stages">
+                        <div class="stage-item" data-stage="PLAN">
+                            <span class="stage-icon">⏳</span>
+                            <span class="stage-name">Plan</span>
+                            <span class="stage-status"></span>
+                        </div>
+                        <div class="stage-arrow">→</div>
+                        <div class="stage-item" data-stage="ANALYZE">
+                            <span class="stage-icon">⏳</span>
+                            <span class="stage-name">Analyze</span>
+                            <span class="stage-status"></span>
+                        </div>
+                        <div class="stage-arrow">→</div>
+                        <div class="stage-item" data-stage="MATCH">
+                            <span class="stage-icon">⏳</span>
+                            <span class="stage-name">Match</span>
+                            <span class="stage-status"></span>
+                        </div>
+                        <div class="stage-arrow">→</div>
+                        <div class="stage-item" data-stage="SCORE">
+                            <span class="stage-icon">⏳</span>
+                            <span class="stage-name">Score</span>
+                            <span class="stage-status"></span>
+                        </div>
+                        <div class="stage-arrow">→</div>
+                        <div class="stage-item" data-stage="REPORT">
+                            <span class="stage-icon">⏳</span>
+                            <span class="stage-name">Report</span>
+                            <span class="stage-status"></span>
+                        </div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p class="progress-message" id="progressMessage">Initializing...</p>
+                </div>
+                <p class="loading-subtext" id="loadingSubtext">This may take a few seconds</p>
             </div>
 
             <!-- Results Section -->

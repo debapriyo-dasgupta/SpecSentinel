@@ -7,7 +7,6 @@ and returns a structured API Health Report.
 """
 
 import json
-import logging
 import sys
 import os
 from pathlib import Path
@@ -18,8 +17,12 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+# NEW: Import centralized logging
+from src.utils.logging_config import get_logger, PipelineLogger, log_performance
+from src.utils.logging_middleware import FastAPILoggingMiddleware
 
 from src.vectordb.store.chroma_client import SpecSentinelVectorStore
 from src.vectordb.ingest.scheduler import start_scheduler
@@ -30,8 +33,8 @@ from src.engine.reporter import build_report, render_text_report
 from src.engine.ai_agent_universal import UniversalAIAgent, is_any_llm_available, get_available_providers
 from src.engine.agents.orchestrator import AgentOrchestrator
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger(__name__)
+# NEW: Use centralized logger
+logger = get_logger(__name__)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -46,6 +49,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# NEW: Add logging middleware
+app.add_middleware(FastAPILoggingMiddleware)
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 store: SpecSentinelVectorStore = None
@@ -129,6 +135,138 @@ async def analyze_spec(file: UploadFile = File(...), format: str = "json"):
     return JSONResponse(report)
 
 
+@app.post("/analyze/stream")
+async def analyze_spec_stream(file: UploadFile = File(...)):
+    """
+    Upload an OpenAPI spec file and receive real-time pipeline progress via Server-Sent Events.
+    
+    Returns:
+        StreamingResponse with text/event-stream content type
+        Each event contains JSON data about pipeline stage progress
+    """
+    if not store:
+        raise HTTPException(503, "Vector store not initialized")
+
+    content = await file.read()
+    spec_name = file.filename or "uploaded_spec"
+
+    try:
+        spec = _parse_spec(content, spec_name)
+    except ValueError as e:
+        raise HTTPException(400, f"Could not parse spec: {e}")
+
+    async def event_generator():
+        """Generate Server-Sent Events for pipeline progress"""
+        import json
+        import time
+        
+        try:
+            # PLAN stage
+            yield f"data: {json.dumps({'stage': 'PLAN', 'status': 'started', 'message': 'Planning analysis...'})}\n\n"
+            
+            start_time = time.time()
+            paths_count = len(spec.get('paths', {}))
+            schemas_count = len(spec.get('components', {}).get('schemas', {}) or {})
+            duration = time.time() - start_time
+            
+            yield f"data: {json.dumps({'stage': 'PLAN', 'status': 'completed', 'duration': round(duration, 3), 'paths': paths_count, 'schemas': schemas_count})}\n\n"
+            
+            # ANALYZE stage
+            yield f"data: {json.dumps({'stage': 'ANALYZE', 'status': 'started', 'message': 'Extracting signals from spec...'})}\n\n"
+            
+            start_time = time.time()
+            extractor = OpenAPISignalExtractor(spec)
+            signals = extractor.extract_all()
+            duration = time.time() - start_time
+            
+            yield f"data: {json.dumps({'stage': 'ANALYZE', 'status': 'completed', 'duration': round(duration, 3), 'signals_count': len(signals)})}\n\n"
+            
+            # MATCH stage
+            yield f"data: {json.dumps({'stage': 'MATCH', 'status': 'started', 'message': 'Matching rules from vector database...'})}\n\n"
+            
+            start_time = time.time()
+            matcher = RuleMatcher(store, n_results_per_signal=3)
+            findings = matcher.match_signals(signals)
+            duration = time.time() - start_time
+            
+            yield f"data: {json.dumps({'stage': 'MATCH', 'status': 'completed', 'duration': round(duration, 3), 'findings_count': len(findings)})}\n\n"
+            
+            # SCORE stage
+            yield f"data: {json.dumps({'stage': 'SCORE', 'status': 'started', 'message': 'Computing health score...'})}\n\n"
+            
+            start_time = time.time()
+            health = compute_health_score(findings)
+            duration = time.time() - start_time
+            
+            yield f"data: {json.dumps({'stage': 'SCORE', 'status': 'completed', 'duration': round(duration, 3), 'health_score': health.total, 'band': health.band})}\n\n"
+            
+            # REPORT stage
+            yield f"data: {json.dumps({'stage': 'REPORT', 'status': 'started', 'message': 'Generating report...'})}\n\n"
+            
+            start_time = time.time()
+            report = build_report(spec_name, health, findings)
+            duration = time.time() - start_time
+            
+            yield f"data: {json.dumps({'stage': 'REPORT', 'status': 'completed', 'duration': round(duration, 3)})}\n\n"
+            
+            # AI Enhancement (if available)
+            if is_any_llm_available():
+                yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'started', 'message': 'Enhancing with AI insights...'})}\n\n"
+                
+                try:
+                    start_time = time.time()
+                    ai_agent = UniversalAIAgent()
+                    
+                    if ai_agent.is_available():
+                        provider_info = ai_agent.get_provider_info()
+                        ai_insights = ai_agent.analyze_findings(spec, report['findings'], report['health_score'])
+                        report['ai_insights'] = {
+                            'summary': ai_insights.summary,
+                            'risk_assessment': {
+                                'level': ai_insights.risk_level,
+                                'score': ai_insights.risk_score,
+                                'business_impact': ai_insights.business_impact
+                            },
+                            'priority_actions': ai_insights.priority_actions,
+                            'estimated_fix_time': ai_insights.estimated_fix_time,
+                            'provider': ai_insights.provider
+                        }
+                        
+                        enhanced_count = 0
+                        for finding in report['findings']:
+                            if finding['severity'] in ['Critical', 'High'] and enhanced_count < 5:
+                                finding['ai_explanation'] = ai_agent.explain_finding(finding)
+                                finding['ai_suggested_fix'] = ai_agent.generate_fix_code(finding, spec)
+                                enhanced_count += 1
+                        
+                        duration = time.time() - start_time
+                        yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'completed', 'duration': round(duration, 3), 'provider': provider_info['provider']})}\n\n"
+                    else:
+                        report['ai_insights'] = {'available': False, 'message': 'No LLM provider available'}
+                        yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'skipped', 'message': 'No LLM provider available'})}\n\n"
+                        
+                except Exception as e:
+                    logger.warning(f"AI enhancement failed: {e}")
+                    report['ai_insights'] = {'error': 'AI enhancement unavailable', 'message': str(e)}
+                    yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'error', 'message': str(e)})}\n\n"
+            
+            # Final result
+            yield f"data: {json.dumps({'stage': 'COMPLETE', 'status': 'completed', 'result': report})}\n\n"
+            
+        except Exception as e:
+            logger.exception("Pipeline streaming failed")
+            yield f"data: {json.dumps({'stage': 'ERROR', 'status': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.post("/analyze/text")
 async def analyze_spec_text(body: dict, format: str = "json"):
     """
@@ -169,40 +307,50 @@ async def trigger_refresh(background_tasks: BackgroundTasks):
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
+@log_performance()
 def _run_pipeline(spec: dict, spec_name: str) -> dict:
     """
-    Core agentic pipeline:
+    Core agentic pipeline with enhanced logging:
     PLAN → ANALYZE (extract signals) → MATCH (vector DB) → SCORE → REPORT → AI-ENHANCE
     """
+    # NEW: Use pipeline logger for stage tracking
+    pipeline = PipelineLogger()
+    
     try:
-        logger.info(f"[PLAN] Analyzing spec: {spec_name}")
-        logger.info(f"[PLAN] Paths: {len(spec.get('paths', {}))}, "
-                    f"Schemas: {len(spec.get('components', {}).get('schemas', {}) or {})}")
+        # PLAN stage
+        pipeline.start_stage("PLAN", spec_name=spec_name)
+        paths_count = len(spec.get('paths', {}))
+        schemas_count = len(spec.get('components', {}).get('schemas', {}) or {})
+        pipeline.end_stage("PLAN", paths=paths_count, schemas=schemas_count)
 
-        # ANALYZE: extract signals
+        # ANALYZE stage
+        pipeline.start_stage("ANALYZE", spec_name=spec_name)
         extractor = OpenAPISignalExtractor(spec)
-        signals   = extractor.extract_all()
-        logger.info(f"[ANALYZE] Extracted {len(signals)} signals")
+        signals = extractor.extract_all()
+        pipeline.end_stage("ANALYZE", signals_count=len(signals))
 
-        # MATCH: query vector DB
-        matcher  = RuleMatcher(store, n_results_per_signal=3)
+        # MATCH stage
+        pipeline.start_stage("MATCH", signals_count=len(signals))
+        matcher = RuleMatcher(store, n_results_per_signal=3)
         findings = matcher.match_signals(signals)
-        logger.info(f"[MATCH] Matched {len(findings)} finding groups")
+        pipeline.end_stage("MATCH", findings_count=len(findings))
 
-        # SCORE: compute health score
+        # SCORE stage
+        pipeline.start_stage("SCORE", findings_count=len(findings))
         health = compute_health_score(findings)
-        logger.info(f"[SCORE] Health: {health.total}/100 ({health.band})")
+        pipeline.end_stage("SCORE", health_score=health.total, band=health.band)
 
-        # REPORT
+        # REPORT stage
+        pipeline.start_stage("REPORT", spec_name=spec_name)
         report = build_report(spec_name, health, findings)
-        logger.info(f"[REPORT] Generated report with {len(report['findings'])} findings")
+        pipeline.end_stage("REPORT", findings_count=len(report['findings']))
 
         # MULTI-AGENT: Run specialized agents in parallel (optional)
         use_multi_agent = os.getenv("USE_MULTI_AGENT", "false").lower() == "true"
         
         if use_multi_agent:
             try:
-                logger.info("[MULTI-AGENT] Running specialized agents in parallel...")
+                pipeline.start_stage("MULTI-AGENT", spec_name=spec_name)
                 
                 # Initialize LLM client if available
                 llm_client = UniversalAIAgent() if is_any_llm_available() else None
@@ -214,13 +362,15 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
                 # Add multi-agent insights to report
                 report['multi_agent_analysis'] = orchestrator.to_dict(agent_result)
                 
-                logger.info(
-                    f"[MULTI-AGENT] Complete: {len(agent_result.agents_used)} agents, "
-                    f"{agent_result.execution_time:.2f}s, risk={agent_result.overall_risk}"
+                pipeline.end_stage(
+                    "MULTI-AGENT",
+                    agents_count=len(agent_result.agents_used),
+                    execution_time=agent_result.execution_time,
+                    risk=agent_result.overall_risk
                 )
                 
             except Exception as e:
-                logger.warning(f"[MULTI-AGENT] Failed: {e}")
+                pipeline.stage_error("MULTI-AGENT", e)
                 report['multi_agent_analysis'] = {
                     'error': 'Multi-agent analysis unavailable',
                     'message': str(e)
@@ -229,12 +379,11 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
         # AI-ENHANCE: Add AI-powered insights (if available)
         if is_any_llm_available():
             try:
-                logger.info("[AI-AGENT] Enhancing report with AI insights...")
+                pipeline.start_stage("AI-ENHANCE", spec_name=spec_name)
                 ai_agent = UniversalAIAgent()
                 
                 if ai_agent.is_available():
                     provider_info = ai_agent.get_provider_info()
-                    logger.info(f"[AI-AGENT] Using {provider_info['provider']} ({provider_info['model']})")
                     
                     # Generate overall AI insights
                     ai_insights = ai_agent.analyze_findings(spec, report['findings'], report['health_score'])
@@ -258,33 +407,37 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
                             finding['ai_suggested_fix'] = ai_agent.generate_fix_code(finding, spec)
                             enhanced_count += 1
                     
-                    logger.info(f"[AI-AGENT] Enhanced {enhanced_count} findings with {provider_info['provider']}")
+                    pipeline.end_stage(
+                        "AI-ENHANCE",
+                        provider=provider_info['provider'],
+                        model=provider_info['model'],
+                        enhanced_count=enhanced_count
+                    )
                 else:
-                    logger.info("[AI-AGENT] No LLM provider available")
+                    pipeline.end_stage("AI-ENHANCE", available=False)
                     report['ai_insights'] = {
                         'available': False,
-                        'message': 'No LLM API keys configured'
+                        'message': 'No LLM provider available'
                     }
                 
             except Exception as e:
-                logger.warning(f"[AI-AGENT] Failed to enhance report: {e}")
+                pipeline.stage_error("AI-ENHANCE", e)
                 report['ai_insights'] = {
                     'error': 'AI enhancement unavailable',
                     'message': str(e)
                 }
         else:
-            available_providers = get_available_providers()
-            logger.info(f"[AI-AGENT] Skipped (no API keys configured)")
+            logger.info("AI-ENHANCE skipped (no API keys configured)")
             report['ai_insights'] = {
                 'available': False,
                 'message': 'Set one of these API keys: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY',
                 'supported_providers': ['openai', 'anthropic', 'google'],
-                'available_providers': available_providers
+                'available_providers': get_available_providers()
             }
 
         return report
     except Exception as e:
-        logger.error(f"[ERROR] Pipeline failed: {str(e)}", exc_info=True)
+        logger.exception("Pipeline failed", extra={"extra_data": {"spec_name": spec_name}})
         raise
 
 

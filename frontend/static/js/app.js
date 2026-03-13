@@ -345,14 +345,16 @@ function showCategoryModal(category, categoryName) {
  */
 async function analyzeFile(file) {
     showLoading();
+    showPipelineProgress();
 
     try {
         const formData = new FormData();
         formData.append('file', file);
 
-        console.log('Sending file to backend:', file.name);
+        console.log('Sending file to backend with SSE:', file.name);
 
-        const response = await fetch(`${API_BASE_URL}/analyze?format=json`, {
+        // Use fetch to send the file and get streaming response
+        const response = await fetch(`${API_BASE_URL}/analyze/stream`, {
             method: 'POST',
             body: formData,
         });
@@ -370,9 +372,49 @@ async function analyzeFile(file) {
             throw new Error(errorMessage);
         }
 
-        const report = await response.json();
-        console.log('Received report:', report);
-        displayResults(report);
+        // Process the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalReport = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE messages
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.substring(6));
+                        console.log('SSE event:', data);
+
+                        if (data.stage === 'COMPLETE') {
+                            finalReport = data.result;
+                        } else if (data.stage === 'ERROR') {
+                            throw new Error(data.message || 'Analysis failed');
+                        } else {
+                            updatePipelineStage(data);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing SSE data:', e);
+                    }
+                }
+            }
+        }
+
+        if (finalReport) {
+            console.log('Received final report:', finalReport);
+            displayResults(finalReport);
+        } else {
+            throw new Error('No report received from analysis');
+        }
     } catch (error) {
         console.error('Analysis error:', error);
         showError(error.message || 'Failed to analyze specification. Please check if the backend server is running.');
@@ -1206,6 +1248,105 @@ function downloadFile(blob, filename) {
 }
 
 /**
+ * Show pipeline progress indicator
+ */
+function showPipelineProgress() {
+    const pipelineProgress = document.getElementById('pipelineProgress');
+    const loadingSubtext = document.getElementById('loadingSubtext');
+    if (pipelineProgress) {
+        pipelineProgress.style.display = 'block';
+        if (loadingSubtext) loadingSubtext.style.display = 'none';
+        resetPipelineStages();
+    }
+}
+
+/**
+ * Hide pipeline progress indicator
+ */
+function hidePipelineProgress() {
+    const pipelineProgress = document.getElementById('pipelineProgress');
+    const loadingSubtext = document.getElementById('loadingSubtext');
+    if (pipelineProgress) {
+        pipelineProgress.style.display = 'none';
+        if (loadingSubtext) loadingSubtext.style.display = 'block';
+    }
+}
+
+/**
+ * Reset all pipeline stages to initial state
+ */
+function resetPipelineStages() {
+    const stages = document.querySelectorAll('.stage-item');
+    stages.forEach(stage => {
+        stage.classList.remove('active', 'completed', 'error');
+        const icon = stage.querySelector('.stage-icon');
+        const status = stage.querySelector('.stage-status');
+        if (icon) icon.textContent = '⏳';
+        if (status) status.textContent = '';
+    });
+
+    const progressFill = document.getElementById('progressFill');
+    const progressMessage = document.getElementById('progressMessage');
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressMessage) progressMessage.textContent = 'Initializing...';
+}
+
+/**
+ * Update pipeline stage based on SSE event
+ */
+function updatePipelineStage(data) {
+    const { stage, status, message, duration } = data;
+    const stageElement = document.querySelector(`.stage-item[data-stage="${stage}"]`);
+    const progressMessage = document.getElementById('progressMessage');
+    const progressFill = document.getElementById('progressFill');
+
+    if (!stageElement) return;
+
+    const icon = stageElement.querySelector('.stage-icon');
+    const statusText = stageElement.querySelector('.stage-status');
+
+    if (status === 'started') {
+        // Mark as active
+        stageElement.classList.add('active');
+        stageElement.classList.remove('completed', 'error');
+        if (icon) icon.textContent = '🔄';
+        if (statusText) statusText.textContent = '';
+        if (progressMessage) progressMessage.textContent = message || `Processing ${stage}...`;
+
+    } else if (status === 'completed') {
+        // Mark as completed
+        stageElement.classList.remove('active');
+        stageElement.classList.add('completed');
+        if (icon) icon.textContent = '✅';
+        if (statusText && duration) {
+            statusText.textContent = `${duration.toFixed(2)}s`;
+        }
+
+        // Update progress bar
+        const stages = ['PLAN', 'ANALYZE', 'MATCH', 'SCORE', 'REPORT', 'AI-ENHANCE'];
+        const completedIndex = stages.indexOf(stage);
+        if (completedIndex >= 0 && progressFill) {
+            const progress = ((completedIndex + 1) / stages.length) * 100;
+            progressFill.style.width = `${progress}%`;
+        }
+
+    } else if (status === 'error') {
+        // Mark as error
+        stageElement.classList.remove('active', 'completed');
+        stageElement.classList.add('error');
+        if (icon) icon.textContent = '❌';
+        if (progressMessage) progressMessage.textContent = message || 'Error occurred';
+
+    } else if (status === 'skipped') {
+        // Mark as skipped
+        stageElement.classList.remove('active');
+        stageElement.classList.add('completed');
+        if (icon) icon.textContent = '⏭️';
+        if (statusText) statusText.textContent = 'skipped';
+    }
+}
+
+/**
  * Reset to upload screen
  */
 function resetToUpload() {
@@ -1248,6 +1389,7 @@ function showLoading() {
  */
 function hideLoading() {
     elements.loadingOverlay.style.display = 'none';
+    hidePipelineProgress();
 }
 
 /**

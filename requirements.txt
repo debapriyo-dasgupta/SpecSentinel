@@ -1,6 +1,8 @@
 # SpecSentinel — Python dependencies
 # Install with: pip install -r requirements.txt
 
+# ===== Backend Dependencies =====
+
 # Vector database
 chromadb>=0.5.0
 
@@ -12,7 +14,7 @@ lxml>=5.0.0
 # YAML parsing for OpenAPI specs
 pyyaml>=6.0
 
-# API framework
+# API framework (Backend)
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9    # for file uploads
@@ -28,3 +30,15 @@ python-dateutil>=2.9.0
 openai>=1.12.0             # OpenAI GPT models (gpt-4o-mini, gpt-4o)
 anthropic>=0.18.0          # Anthropic Claude models (claude-3-5-sonnet, claude-3-haiku)
 google-generativeai>=0.3.0 # Google Gemini models (gemini-1.5-pro, gemini-1.5-flash)
+
+# ===== Frontend Dependencies =====
+
+# Flask web framework
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# WSGI server for production
+gunicorn==21.2.0
+
+# Environment variables
+python-dotenv==1.0.0

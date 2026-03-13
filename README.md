@@ -88,7 +88,7 @@ SpecSentinel_IBM_Hackathon/
 - pip package manager
 - Virtual environment (recommended)
 
-### Installation
+### Installation & Running
 
 1. **Clone the repository**
    ```bash
@@ -107,16 +107,45 @@ SpecSentinel_IBM_Hackathon/
    source venv/bin/activate
    ```
 
-3. **Install dependencies**
+3. **Install all dependencies (Backend + Frontend)**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Install the package in development mode**
+4. **Run the application (Single Command!)**
    ```bash
-   pip install -e .
+   python run_app.py
    ```
----
+
+   This will start:
+   - 🔧 Backend API on `http://localhost:8000`
+   - 🌐 Frontend UI on `http://localhost:5000`
+
+5. **Open your browser**
+   ```
+   http://localhost:5000
+   ```
+
+6. **Stop the application**
+   ```
+   Press Ctrl+C in the terminal
+   ```
+
+### Alternative: Run Backend and Frontend Separately
+
+If you need to run them separately for development:
+
+```bash
+# Terminal 1 - Backend API
+cd src/api
+python app.py
+
+# Terminal 2 - Frontend
+cd frontend
+python app.py
+```
+
+\---
 
 ## 🤖 AI-Powered Analysis (NEW!)
 
