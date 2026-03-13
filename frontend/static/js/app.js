@@ -50,16 +50,15 @@ const elements = {
     mediumCount: document.getElementById('mediumCount'),
     lowCount: document.getElementById('lowCount'),
     categoryBreakdown: document.getElementById('categoryBreakdown'),
+    issuesFixesList: document.getElementById('issuesFixesList'),
 
     // Modal
     severityModal: document.getElementById('severityModal'),
     modalTitle: document.getElementById('modalTitle'),
     modalClose: document.getElementById('modalClose'),
     modalCloseBtn: document.getElementById('modalCloseBtn'),
-    modalFindingsList: document.getElementById('modalFindingsList'),
-    modalRecommendationsList: document.getElementById('modalRecommendationsList'),
-    modalFindingsCount: document.getElementById('modalFindingsCount'),
-    modalRecommendationsCount: document.getElementById('modalRecommendationsCount'),
+    modalIssuesList: document.getElementById('modalIssuesList'),
+    modalIssuesCount: document.getElementById('modalIssuesCount'),
     modalExportBtn: document.getElementById('modalExportBtn'),
 
     // Export
@@ -333,11 +332,8 @@ function showCategoryModal(category, categoryName) {
         return false;
     });
 
-    // Display findings in modal
-    displayModalFindings(findings, categoryName);
-
-    // Display recommendations in modal
-    displayModalRecommendations(recommendations, categoryName);
+    // Display merged issues and fixes in modal
+    displayModalIssuesAndFixes(findings, recommendations, categoryName);
 
     // Show modal
     elements.severityModal.style.display = 'flex';
@@ -625,20 +621,433 @@ function displayCategoryBreakdown(categoryData) {
 }
 
 /**
- * Display findings
+ * Group findings or recommendations by title
  */
-function displayFindings(findings) {
-    elements.findingsList.innerHTML = '';
+function groupByTitle(items) {
+    const grouped = {};
+    items.forEach(item => {
+        const title = item.title || 'Other';
+        if (!grouped[title]) {
+            grouped[title] = [];
+        }
+        grouped[title].push(item);
+    });
+    return grouped;
+}
 
-    if (!findings || findings.length === 0) {
-        elements.findingsList.innerHTML = '<p class="text-center">No findings detected. Great job! ✅</p>';
+/**
+ * Create a collapsible group element for findings
+ */
+function createFindingGroupElement(title, items) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'finding-group';
+
+    // Get benchmark/source from first item for tag
+    const benchmark = items[0].benchmark || items[0].source || '';
+    const category = items[0].category || '';
+
+    // Category display info
+    const categoryInfo = {
+        'security': { name: 'Security', icon: '🔒', color: '#da1e28' },
+        'design': { name: 'Design', icon: '🎨', color: '#0f62fe' },
+        'error_handling': { name: 'Error Handling', icon: '⚠️', color: '#f1c21b' },
+        'documentation': { name: 'Documentation', icon: '📝', color: '#0043ce' },
+        'governance': { name: 'Governance', icon: '⚖️', color: '#8a3ffc' },
+    };
+
+    const catInfo = categoryInfo[category.toLowerCase()] || { name: category, icon: '📋', color: '#525252' };
+
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'finding-group-header';
+    header.innerHTML = `
+        <div class="finding-group-title">
+            <span class="group-toggle-icon">▶</span>
+            <span class="group-title-text">${escapeHtml(title)}</span>
+            <span class="group-count">(${items.length})</span>
+            ${benchmark ? `<span class="group-tag">${escapeHtml(benchmark)}</span>` : ''}
+        </div>
+    `;
+
+    // Create content container
+    const content = document.createElement('div');
+    content.className = 'finding-group-content';
+    content.style.display = 'none';
+
+    // Add each finding to the group
+    items.forEach(item => {
+        const findingDiv = document.createElement('div');
+        findingDiv.className = 'grouped-finding-item';
+
+        const severity = item.severity.toLowerCase();
+
+        let html = `
+            <div class="grouped-finding-header">
+                <span class="severity-badge ${severity}">${item.severity}</span>
+            </div>
+            <div class="grouped-finding-section">
+                <strong>📍 Issue:</strong>
+                <p>${escapeHtml(item.description)}</p>
+            </div>
+        `;
+
+        if (item.fix_guidance) {
+            html += `
+                <div class="grouped-finding-section">
+                    <strong>💡 Fix:</strong>
+                    <pre>${escapeHtml(item.fix_guidance)}</pre>
+                </div>
+            `;
+        }
+
+        if (item.evidence) {
+            html += `
+                <div class="grouped-finding-section">
+                    <strong>🔍 Evidence:</strong>
+                    <pre>${escapeHtml(item.evidence)}</pre>
+                </div>
+            `;
+        }
+
+        findingDiv.innerHTML = html;
+        content.appendChild(findingDiv);
+    });
+
+    // Add toggle functionality
+    header.addEventListener('click', () => {
+        const isExpanded = content.style.display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        const toggleIcon = header.querySelector('.group-toggle-icon');
+        toggleIcon.textContent = isExpanded ? '▶' : '▼';
+        groupDiv.classList.toggle('expanded', !isExpanded);
+    });
+
+    groupDiv.appendChild(header);
+    groupDiv.appendChild(content);
+
+    return groupDiv;
+}
+
+/**
+ * Create a collapsible group element for recommendations
+ */
+function createRecommendationGroupElement(title, items) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'recommendation-group';
+
+    // Get benchmark/source from first item for tag
+    const benchmark = items[0].benchmark || items[0].source || '';
+
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'recommendation-group-header';
+    header.innerHTML = `
+        <div class="recommendation-group-title">
+            <span class="group-toggle-icon">▶</span>
+            <span class="group-title-text">${escapeHtml(title)}</span>
+            <span class="group-count">(${items.length})</span>
+            ${benchmark ? `<span class="group-tag">${escapeHtml(benchmark)}</span>` : ''}
+        </div>
+    `;
+
+    // Create content container
+    const content = document.createElement('div');
+    content.className = 'recommendation-group-content';
+    content.style.display = 'none';
+
+    // Add each recommendation to the group
+    items.forEach((rec, index) => {
+        const recDiv = document.createElement('div');
+        recDiv.className = 'grouped-recommendation-item';
+
+        let html = '';
+
+        if (typeof rec === 'object') {
+            const priority = rec.priority || 'High';
+
+            html = `
+                <div class="grouped-rec-header">
+                    <span class="priority-badge priority-${priority.toLowerCase()}">${priority}</span>
+                </div>
+            `;
+
+            if (rec.issue) {
+                html += `
+                    <div class="grouped-rec-section">
+                        <strong>📍 Issue:</strong>
+                        <p>${escapeHtml(rec.issue)}</p>
+                    </div>
+                `;
+            }
+
+            if (rec.fix) {
+                html += `
+                    <div class="grouped-rec-section">
+                        <strong>💡 Fix:</strong>
+                        <pre>${escapeHtml(rec.fix)}</pre>
+                    </div>
+                `;
+            }
+
+            if (rec.recommendation) {
+                html += `
+                    <div class="grouped-rec-section">
+                        <strong>✅ Recommendation:</strong>
+                        <p>${escapeHtml(rec.recommendation)}</p>
+                    </div>
+                `;
+            }
+        } else {
+            html = `<p>${escapeHtml(rec)}</p>`;
+        }
+
+        recDiv.innerHTML = html;
+        content.appendChild(recDiv);
+    });
+
+    // Add toggle functionality
+    header.addEventListener('click', () => {
+        const isExpanded = content.style.display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        const toggleIcon = header.querySelector('.group-toggle-icon');
+        toggleIcon.textContent = isExpanded ? '▶' : '▼';
+        groupDiv.classList.toggle('expanded', !isExpanded);
+    });
+
+    groupDiv.appendChild(header);
+    groupDiv.appendChild(content);
+
+    return groupDiv;
+}
+
+/**
+ * Display merged issues and fixes (findings + recommendations)
+ */
+function displayIssuesAndFixes(findings, recommendations) {
+    if (!elements.issuesFixesList) {
+        console.warn('issuesFixesList element not found');
         return;
     }
 
-    findings.forEach(finding => {
-        const item = createFindingElement(finding);
-        elements.findingsList.appendChild(item);
+    elements.issuesFixesList.innerHTML = '';
+
+    if ((!findings || findings.length === 0) && (!recommendations || recommendations.length === 0)) {
+        elements.issuesFixesList.innerHTML = '<p class="text-center">No issues detected. Great job! ✅</p>';
+        return;
+    }
+
+    // Merge findings and recommendations by title
+    const mergedData = mergeIssuesAndFixes(findings, recommendations);
+
+    // Create collapsible groups
+    Object.entries(mergedData).forEach(([title, data]) => {
+        const groupElement = createIssueFixGroupElement(title, data);
+        elements.issuesFixesList.appendChild(groupElement);
     });
+}
+
+/**
+ * Merge findings and recommendations by title
+ */
+function mergeIssuesAndFixes(findings, recommendations) {
+    const merged = {};
+
+    // Add findings
+    if (findings && findings.length > 0) {
+        findings.forEach(finding => {
+            const title = finding.title || 'Other';
+            if (!merged[title]) {
+                merged[title] = {
+                    findings: [],
+                    recommendations: [],
+                    benchmark: finding.benchmark || finding.source || '',
+                    category: finding.category || ''
+                };
+            }
+            merged[title].findings.push(finding);
+        });
+    }
+
+    // Add recommendations
+    if (recommendations && recommendations.length > 0) {
+        recommendations.forEach(rec => {
+            const title = rec.title || 'Other';
+            if (!merged[title]) {
+                merged[title] = {
+                    findings: [],
+                    recommendations: [],
+                    benchmark: rec.benchmark || rec.source || '',
+                    category: rec.category || ''
+                };
+            }
+            merged[title].recommendations.push(rec);
+        });
+    }
+
+    return merged;
+}
+
+/**
+ * Create a collapsible group element for merged issues and fixes
+ */
+function createIssueFixGroupElement(title, data) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'issue-fix-group';
+
+    const totalCount = data.findings.length + data.recommendations.length;
+    const benchmark = data.benchmark;
+
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'issue-fix-group-header';
+    header.innerHTML = `
+        <div class="issue-fix-group-title">
+            <span class="group-toggle-icon">▶</span>
+            <span class="group-title-text">${escapeHtml(title)}</span>
+            <span class="group-count">(${totalCount})</span>
+            ${benchmark ? `<span class="group-tag">${escapeHtml(benchmark)}</span>` : ''}
+        </div>
+    `;
+
+    // Create content container
+    const content = document.createElement('div');
+    content.className = 'issue-fix-group-content';
+    content.style.display = 'none';
+
+    // Add findings and recommendations together
+    const allItems = [...data.findings, ...data.recommendations];
+
+    allItems.forEach(item => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'issue-fix-item';
+
+        let html = '';
+
+        // Header with severity/priority badge and category tag (right-aligned)
+        html += '<div class="issue-fix-header">';
+
+        // Category tag (always show, use default if not present)
+        const categoryInfo = {
+            'security': { name: 'Security', icon: '🔒', color: '#da1e28' },
+            'design': { name: 'Design', icon: '🎨', color: '#0f62fe' },
+            'error_handling': { name: 'Error Handling', icon: '⚠️', color: '#f1c21b' },
+            'documentation': { name: 'Documentation', icon: '📝', color: '#0043ce' },
+            'governance': { name: 'Governance', icon: '⚖️', color: '#8a3ffc' },
+        };
+        const category = item.category || 'General';
+        const catInfo = categoryInfo[category.toLowerCase()] || { name: category, icon: '📋', color: '#525252' };
+        html += `<span class="category-tag" style="background-color: ${catInfo.color}">${catInfo.icon} ${catInfo.name}</span>`;
+
+        // Severity badge (for findings)
+        if (item.severity) {
+            const severity = item.severity.toLowerCase();
+            html += `<span class="severity-badge ${severity}">${item.severity}</span>`;
+        }
+
+        // Priority badge (for recommendations)
+        if (item.priority) {
+            const priority = item.priority.toLowerCase();
+            html += `<span class="priority-badge priority-${priority}">${item.priority}</span>`;
+        }
+
+        html += '</div>';
+
+        // Issue Statement (title) - NEW
+        if (item.title) {
+            html += `
+                <div class="issue-fix-section issue-statement">
+                    <strong>📋 Issue Statement:</strong>
+                    <p>${escapeHtml(item.title)}</p>
+                </div>
+            `;
+        }
+
+        // Issue Description
+        if (item.description || item.issue) {
+            html += `
+                <div class="issue-fix-section">
+                    <strong>📍 Issue:</strong>
+                    <p>${escapeHtml(item.description || item.issue)}</p>
+                </div>
+            `;
+        }
+
+        // Evidence section
+        if (item.evidence) {
+            html += `
+                <div class="issue-fix-section">
+                    <strong>🔍 Evidence:</strong>
+                    <pre class="evidence-code">${escapeHtml(item.evidence)}</pre>
+                </div>
+            `;
+        }
+
+        // Recommended Fix section (without copy button)
+        if (item.fix_guidance || item.fix) {
+            const fixContent = item.fix_guidance || item.fix;
+            html += `
+                <div class="issue-fix-section">
+                    <strong>💡 Recommended Fix:</strong>
+                    <pre class="fix-code">${escapeHtml(fixContent)}</pre>
+                </div>
+            `;
+        }
+
+        // Recommendation section (for recommendation items)
+        if (item.recommendation) {
+            html += `
+                <div class="issue-fix-section">
+                    <strong>✅ Recommendation:</strong>
+                    <p>${escapeHtml(item.recommendation)}</p>
+                </div>
+            `;
+        }
+
+        itemDiv.innerHTML = html;
+        content.appendChild(itemDiv);
+    });
+
+    // Add toggle functionality
+    header.addEventListener('click', () => {
+        const isExpanded = content.style.display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        const toggleIcon = header.querySelector('.group-toggle-icon');
+        toggleIcon.textContent = isExpanded ? '▶' : '▼';
+        groupDiv.classList.toggle('expanded', !isExpanded);
+    });
+
+    groupDiv.appendChild(header);
+    groupDiv.appendChild(content);
+
+    return groupDiv;
+}
+
+/**
+ * Copy to clipboard function
+ */
+function copyToClipboard(button) {
+    const content = button.getAttribute('data-content');
+    navigator.clipboard.writeText(content).then(() => {
+        const originalText = button.textContent;
+        button.textContent = '✅ Copied!';
+        button.classList.add('copied');
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.classList.remove('copied');
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        button.textContent = '❌ Failed';
+        setTimeout(() => {
+            button.textContent = '📋 Copy';
+        }, 2000);
+    });
+}
+
+// Keep old functions for backward compatibility but make them call the new merged function
+function displayFindings(findings) {
+    // This is now handled by displayIssuesAndFixes
+    console.log('displayFindings called with', findings?.length, 'findings');
 }
 
 /**
@@ -697,54 +1106,8 @@ function createFindingElement(finding) {
  * Display recommendations
  */
 function displayRecommendations(recommendations) {
-    console.log('Displaying recommendations:', recommendations);
-    elements.recommendationsList.innerHTML = '';
-
-    if (!recommendations || !Array.isArray(recommendations) || recommendations.length === 0) {
-        console.log('No recommendations to display');
-        elements.recommendationsList.innerHTML = '<p class="text-center">No priority recommendations at this time.</p>';
-        return;
-    }
-
-    console.log(`Rendering ${recommendations.length} recommendations`);
-    recommendations.forEach((rec, index) => {
-        const item = document.createElement('div');
-        item.className = 'recommendation-item';
-
-        // Handle both string and object formats
-        if (typeof rec === 'string') {
-            // Simple string format
-            item.innerHTML = `<strong>${index + 1}.</strong> ${escapeHtml(rec)}`;
-        } else if (rec && typeof rec === 'object') {
-            // Object format from backend
-            const priority = rec.priority || 'High';
-            const title = rec.title || 'Recommendation';
-            const issue = rec.issue || '';
-            const fix = rec.fix || '';
-            const benchmark = rec.benchmark || '';
-
-            let html = `<strong>${index + 1}. [${priority}]</strong> ${escapeHtml(title)}`;
-
-            if (issue) {
-                html += `<br><span style="color: var(--text-secondary); font-size: 0.9em;">Issue: ${escapeHtml(issue)}</span>`;
-            }
-
-            if (fix) {
-                html += `<br><span style="color: var(--success-color); font-size: 0.9em;">💡 Fix: ${escapeHtml(fix)}</span>`;
-            }
-
-            if (benchmark) {
-                html += `<br><span style="color: var(--text-tertiary); font-size: 0.85em;">📋 ${escapeHtml(benchmark)}</span>`;
-            }
-
-            item.innerHTML = html;
-        } else {
-            console.warn('Invalid recommendation format:', rec);
-            return;
-        }
-
-        elements.recommendationsList.appendChild(item);
-    });
+    // This is now handled by displayIssuesAndFixes
+    console.log('displayRecommendations called with', recommendations?.length, 'recommendations');
 }
 
 /**
@@ -981,19 +1344,12 @@ function showSeverityModal(severity) {
         f.severity.toLowerCase() === severity
     );
 
-    // Filter recommendations by severity (if they have severity field)
-    const recommendations = (currentReport.recommendations || []).filter(rec => {
-        if (typeof rec === 'object' && rec.priority) {
-            return rec.priority.toLowerCase() === severity;
-        }
-        return false;
-    });
+    // For severity modal, only show findings (not recommendations)
+    // Recommendations are priority-based, not severity-based
+    const recommendations = [];
 
-    // Display findings in modal
-    displayModalFindings(findings, severity);
-
-    // Display recommendations in modal
-    displayModalRecommendations(recommendations, severity);
+    // Display merged issues and fixes in modal
+    displayModalIssuesAndFixes(findings, recommendations, severity);
 
     // Show modal
     elements.severityModal.style.display = 'flex';
@@ -1004,71 +1360,47 @@ function showSeverityModal(severity) {
  * Display findings in modal
  */
 function displayModalFindings(findings, severity) {
-    elements.modalFindingsList.innerHTML = '';
-    elements.modalFindingsCount.textContent = findings.length;
-
-    if (findings.length === 0) {
-        elements.modalFindingsList.innerHTML = `
-            <p class="text-center" style="color: var(--text-secondary); padding: 2rem;">
-                No ${severity} severity findings detected. ✅
-            </p>
-        `;
-        return;
-    }
-
-    findings.forEach(finding => {
-        const item = createFindingElement(finding);
-        elements.modalFindingsList.appendChild(item);
-    });
+    // This is now handled by displayModalIssuesAndFixes
+    console.log('displayModalFindings called - redirecting to merged view');
 }
 
 /**
  * Display recommendations in modal
  */
 function displayModalRecommendations(recommendations, severity) {
-    elements.modalRecommendationsList.innerHTML = '';
-    elements.modalRecommendationsCount.textContent = recommendations.length;
+    // This is now handled by displayModalIssuesAndFixes
+    console.log('displayModalRecommendations called - redirecting to merged view');
+}
 
-    if (recommendations.length === 0) {
-        elements.modalRecommendationsList.innerHTML = `
+/**
+ * Display merged issues and fixes in modal
+ */
+function displayModalIssuesAndFixes(findings, recommendations, severity) {
+    if (!elements.modalIssuesList) {
+        console.warn('modalIssuesList element not found');
+        return;
+    }
+
+    elements.modalIssuesList.innerHTML = '';
+    const totalCount = (findings?.length || 0) + (recommendations?.length || 0);
+    elements.modalIssuesCount.textContent = totalCount;
+
+    if (totalCount === 0) {
+        elements.modalIssuesList.innerHTML = `
             <p class="text-center" style="color: var(--text-secondary); padding: 2rem;">
-                No ${severity} priority recommendations at this time.
+                No ${severity} issues detected. ✅
             </p>
         `;
         return;
     }
 
-    recommendations.forEach((rec, index) => {
-        const item = document.createElement('div');
-        item.className = 'recommendation-item';
+    // Merge findings and recommendations by title
+    const mergedData = mergeIssuesAndFixes(findings, recommendations);
 
-        if (typeof rec === 'object') {
-            const priority = rec.priority || 'High';
-            const title = rec.title || 'Recommendation';
-            const issue = rec.issue || '';
-            const fix = rec.fix || '';
-            const benchmark = rec.benchmark || '';
-
-            let html = `<strong>${index + 1}. [${priority}]</strong> ${escapeHtml(title)}`;
-
-            if (issue) {
-                html += `<br><span style="color: var(--text-secondary); font-size: 0.9em;">Issue: ${escapeHtml(issue)}</span>`;
-            }
-
-            if (fix) {
-                html += `<br><span style="color: var(--success-color); font-size: 0.9em;">💡 Fix: ${escapeHtml(fix)}</span>`;
-            }
-
-            if (benchmark) {
-                html += `<br><span style="color: var(--text-tertiary); font-size: 0.85em;">📋 ${escapeHtml(benchmark)}</span>`;
-            }
-
-            item.innerHTML = html;
-        } else {
-            item.innerHTML = `<strong>${index + 1}.</strong> ${escapeHtml(rec)}`;
-        }
-
-        elements.modalRecommendationsList.appendChild(item);
+    // Create collapsible groups
+    Object.entries(mergedData).forEach(([title, data]) => {
+        const groupElement = createIssueFixGroupElement(title, data);
+        elements.modalIssuesList.appendChild(groupElement);
     });
 }
 
