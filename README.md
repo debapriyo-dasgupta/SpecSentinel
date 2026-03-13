@@ -16,6 +16,7 @@ SpecSentinel is an intelligent API governance tool that automatically analyzes O
 - ✅ **Vector DB Rule Engine** - ChromaDB with 29+ curated rules
 - ✅ **Semantic Matching** - AI-powered rule matching using embeddings
 - ✅ **Weighted Scoring** - 0-100 health score with category breakdown
+- ✅ **LLM-Powered Insights** 🤖 - AI-generated explanations and fix recommendations (NEW!)
 - ✅ **Auto Rule Refresh** - Weekly updates from OWASP, OpenAPI, RFC sources
 - ✅ **REST API** - FastAPI server with multiple endpoints
 - ✅ **Web Frontend** - Modern, responsive UI for easy analysis
@@ -32,7 +33,8 @@ SpecSentinel_IBM_Hackathon/
 │   │   ├── signal_extractor.py  # OpenAPI spec parser
 │   │   ├── rule_matcher.py      # Vector DB semantic search
 │   │   ├── scorer.py            # Health score calculator
-│   │   └── reporter.py          # Report generator
+│   │   ├── reporter.py          # Report generator
+│   │   └── ai_agent.py          # 🤖 LLM-powered AI agent (NEW!)
 │   │
 │   ├── vectordb/                 # Vector database layer
 │   │   ├── store/
@@ -114,6 +116,63 @@ SpecSentinel_IBM_Hackathon/
    ```bash
    pip install -e .
    ```
+---
+
+## 🤖 AI-Powered Analysis (NEW!)
+
+SpecSentinel now includes an optional LLM-powered AI Agent that enhances reports with:
+
+- **AI-Generated Explanations** - Plain-language explanations of technical issues
+- **Auto-Generated Fix Code** - YAML snippets ready to copy-paste
+- **Risk Assessment** - Business impact analysis and risk scoring
+- **Priority Recommendations** - Intelligent action prioritization
+- **Estimated Fix Time** - Effort estimation for remediation
+
+### Quick Setup
+
+```bash
+# 1. Install OpenAI package
+pip install openai>=1.12.0
+
+# 2. Set your OpenAI API key
+$env:OPENAI_API_KEY = "sk-your-api-key-here"  # Windows
+export OPENAI_API_KEY="sk-your-api-key-here"  # Linux/Mac
+
+# 3. Verify setup
+python setup_ai_agent.py
+
+# 4. Run analysis (AI insights automatically included)
+python run_app.py
+```
+
+### Example AI-Enhanced Report
+
+```json
+{
+  "findings": [
+    {
+      "title": "Missing authentication scheme",
+      "severity": "Critical",
+      "ai_explanation": "This API lacks authentication, leaving all endpoints publicly accessible...",
+      "ai_suggested_fix": "# Add OAuth2 security\ncomponents:\n  securitySchemes:..."
+    }
+  ],
+  "ai_insights": {
+    "summary": "This API has critical security gaps requiring immediate attention...",
+    "risk_assessment": {
+      "level": "HIGH",
+      "score": 75,
+      "business_impact": "Security issues could lead to unauthorized access..."
+    },
+    "estimated_fix_time": "1-2 days"
+  }
+}
+```
+
+**Note**: AI Agent is optional. SpecSentinel works perfectly without it, but AI provides enhanced insights.
+
+📚 **Full Documentation**: [AI Agent Guide](docs/AI_AGENT_GUIDE.md)
+
 
 ### Running the Application
 

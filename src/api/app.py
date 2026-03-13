@@ -9,6 +9,7 @@ and returns a structured API Health Report.
 import json
 import logging
 import sys
+import os
 from pathlib import Path
 
 import yaml
@@ -26,6 +27,8 @@ from src.engine.signal_extractor import OpenAPISignalExtractor
 from src.engine.rule_matcher import RuleMatcher
 from src.engine.scorer import compute_health_score
 from src.engine.reporter import build_report, render_text_report
+from src.engine.ai_agent_universal import UniversalAIAgent, is_any_llm_available, get_available_providers
+from src.engine.agents.orchestrator import AgentOrchestrator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -169,7 +172,7 @@ async def trigger_refresh(background_tasks: BackgroundTasks):
 def _run_pipeline(spec: dict, spec_name: str) -> dict:
     """
     Core agentic pipeline:
-    PLAN → ANALYZE (extract signals) → MATCH (vector DB) → SCORE → REPORT
+    PLAN → ANALYZE (extract signals) → MATCH (vector DB) → SCORE → REPORT → AI-ENHANCE
     """
     try:
         logger.info(f"[PLAN] Analyzing spec: {spec_name}")
@@ -193,6 +196,91 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
         # REPORT
         report = build_report(spec_name, health, findings)
         logger.info(f"[REPORT] Generated report with {len(report['findings'])} findings")
+
+        # MULTI-AGENT: Run specialized agents in parallel (optional)
+        use_multi_agent = os.getenv("USE_MULTI_AGENT", "false").lower() == "true"
+        
+        if use_multi_agent:
+            try:
+                logger.info("[MULTI-AGENT] Running specialized agents in parallel...")
+                
+                # Initialize LLM client if available
+                llm_client = UniversalAIAgent() if is_any_llm_available() else None
+                
+                # Run orchestrated multi-agent analysis
+                orchestrator = AgentOrchestrator(llm_client=llm_client, max_workers=5)
+                agent_result = orchestrator.analyze(spec, signals, findings, parallel=True)
+                
+                # Add multi-agent insights to report
+                report['multi_agent_analysis'] = orchestrator.to_dict(agent_result)
+                
+                logger.info(
+                    f"[MULTI-AGENT] Complete: {len(agent_result.agents_used)} agents, "
+                    f"{agent_result.execution_time:.2f}s, risk={agent_result.overall_risk}"
+                )
+                
+            except Exception as e:
+                logger.warning(f"[MULTI-AGENT] Failed: {e}")
+                report['multi_agent_analysis'] = {
+                    'error': 'Multi-agent analysis unavailable',
+                    'message': str(e)
+                }
+        
+        # AI-ENHANCE: Add AI-powered insights (if available)
+        if is_any_llm_available():
+            try:
+                logger.info("[AI-AGENT] Enhancing report with AI insights...")
+                ai_agent = UniversalAIAgent()
+                
+                if ai_agent.is_available():
+                    provider_info = ai_agent.get_provider_info()
+                    logger.info(f"[AI-AGENT] Using {provider_info['provider']} ({provider_info['model']})")
+                    
+                    # Generate overall AI insights
+                    ai_insights = ai_agent.analyze_findings(spec, report['findings'], report['health_score'])
+                    report['ai_insights'] = {
+                        'summary': ai_insights.summary,
+                        'risk_assessment': {
+                            'level': ai_insights.risk_level,
+                            'score': ai_insights.risk_score,
+                            'business_impact': ai_insights.business_impact
+                        },
+                        'priority_actions': ai_insights.priority_actions,
+                        'estimated_fix_time': ai_insights.estimated_fix_time,
+                        'provider': ai_insights.provider
+                    }
+                    
+                    # Add AI explanations and fix code to top 5 critical/high findings
+                    enhanced_count = 0
+                    for finding in report['findings']:
+                        if finding['severity'] in ['Critical', 'High'] and enhanced_count < 5:
+                            finding['ai_explanation'] = ai_agent.explain_finding(finding)
+                            finding['ai_suggested_fix'] = ai_agent.generate_fix_code(finding, spec)
+                            enhanced_count += 1
+                    
+                    logger.info(f"[AI-AGENT] Enhanced {enhanced_count} findings with {provider_info['provider']}")
+                else:
+                    logger.info("[AI-AGENT] No LLM provider available")
+                    report['ai_insights'] = {
+                        'available': False,
+                        'message': 'No LLM API keys configured'
+                    }
+                
+            except Exception as e:
+                logger.warning(f"[AI-AGENT] Failed to enhance report: {e}")
+                report['ai_insights'] = {
+                    'error': 'AI enhancement unavailable',
+                    'message': str(e)
+                }
+        else:
+            available_providers = get_available_providers()
+            logger.info(f"[AI-AGENT] Skipped (no API keys configured)")
+            report['ai_insights'] = {
+                'available': False,
+                'message': 'Set one of these API keys: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY',
+                'supported_providers': ['openai', 'anthropic', 'google'],
+                'available_providers': available_providers
+            }
 
         return report
     except Exception as e:
