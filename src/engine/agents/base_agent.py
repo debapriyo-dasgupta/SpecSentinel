@@ -8,7 +8,10 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
+# Use centralized logging
+from src.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass

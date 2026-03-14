@@ -160,8 +160,12 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
         import json
         import time
         
+        # NEW: Create pipeline logger for streaming endpoint
+        pipeline = PipelineLogger()
+        
         try:
             # PLAN stage
+            pipeline.start_stage("PLAN", spec_name=spec_name)
             yield f"data: {json.dumps({'stage': 'PLAN', 'status': 'started', 'message': 'Planning analysis...'})}\n\n"
             
             start_time = time.time()
@@ -169,9 +173,11 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
             schemas_count = len(spec.get('components', {}).get('schemas', {}) or {})
             duration = time.time() - start_time
             
+            pipeline.end_stage("PLAN", paths=paths_count, schemas=schemas_count)
             yield f"data: {json.dumps({'stage': 'PLAN', 'status': 'completed', 'duration': round(duration, 3), 'paths': paths_count, 'schemas': schemas_count})}\n\n"
             
             # ANALYZE stage
+            pipeline.start_stage("ANALYZE", spec_name=spec_name)
             yield f"data: {json.dumps({'stage': 'ANALYZE', 'status': 'started', 'message': 'Extracting signals from spec...'})}\n\n"
             
             start_time = time.time()
@@ -179,9 +185,11 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
             signals = extractor.extract_all()
             duration = time.time() - start_time
             
+            pipeline.end_stage("ANALYZE", signals_count=len(signals))
             yield f"data: {json.dumps({'stage': 'ANALYZE', 'status': 'completed', 'duration': round(duration, 3), 'signals_count': len(signals)})}\n\n"
             
             # MATCH stage
+            pipeline.start_stage("MATCH", signals_count=len(signals))
             yield f"data: {json.dumps({'stage': 'MATCH', 'status': 'started', 'message': 'Matching rules from vector database...'})}\n\n"
             
             start_time = time.time()
@@ -189,28 +197,72 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
             findings = matcher.match_signals(signals)
             duration = time.time() - start_time
             
+            pipeline.end_stage("MATCH", findings_count=len(findings))
             yield f"data: {json.dumps({'stage': 'MATCH', 'status': 'completed', 'duration': round(duration, 3), 'findings_count': len(findings)})}\n\n"
             
             # SCORE stage
+            pipeline.start_stage("SCORE", findings_count=len(findings))
             yield f"data: {json.dumps({'stage': 'SCORE', 'status': 'started', 'message': 'Computing health score...'})}\n\n"
             
             start_time = time.time()
             health = compute_health_score(findings)
             duration = time.time() - start_time
             
+            pipeline.end_stage("SCORE", health_score=health.total, band=health.band)
             yield f"data: {json.dumps({'stage': 'SCORE', 'status': 'completed', 'duration': round(duration, 3), 'health_score': health.total, 'band': health.band})}\n\n"
             
             # REPORT stage
+            pipeline.start_stage("REPORT", spec_name=spec_name)
             yield f"data: {json.dumps({'stage': 'REPORT', 'status': 'started', 'message': 'Generating report...'})}\n\n"
             
             start_time = time.time()
             report = build_report(spec_name, health, findings)
             duration = time.time() - start_time
             
+            pipeline.end_stage("REPORT", findings_count=len(report['findings']))
             yield f"data: {json.dumps({'stage': 'REPORT', 'status': 'completed', 'duration': round(duration, 3)})}\n\n"
+            
+            # MULTI-AGENT: Run specialized agents in parallel (enabled by default)
+            use_multi_agent = os.getenv("USE_MULTI_AGENT", "true").lower() == "true"
+            
+            if use_multi_agent:
+                try:
+                    pipeline.start_stage("MULTI-AGENT", spec_name=spec_name)
+                    yield f"data: {json.dumps({'stage': 'MULTI-AGENT', 'status': 'started', 'message': 'Running specialized agents...'})}\n\n"
+                    
+                    start_time = time.time()
+                    
+                    # Initialize LLM client if available
+                    llm_client = UniversalAIAgent() if is_any_llm_available() else None
+                    
+                    # Run orchestrated multi-agent analysis
+                    orchestrator = AgentOrchestrator(llm_client=llm_client, max_workers=5)
+                    agent_result = orchestrator.analyze(spec, signals, findings, parallel=True)
+                    
+                    # Add multi-agent insights to report
+                    report['multi_agent_analysis'] = orchestrator.to_dict(agent_result)
+                    
+                    duration = time.time() - start_time
+                    pipeline.end_stage(
+                        "MULTI-AGENT",
+                        agents_count=len(agent_result.agents_used),
+                        execution_time=agent_result.execution_time,
+                        risk=agent_result.overall_risk
+                    )
+                    yield f"data: {json.dumps({'stage': 'MULTI-AGENT', 'status': 'completed', 'duration': round(duration, 3), 'agents': len(agent_result.agents_used), 'risk': agent_result.overall_risk})}\n\n"
+                    
+                except Exception as e:
+                    pipeline.stage_error("MULTI-AGENT", e)
+                    logger.exception("Multi-agent analysis failed in streaming endpoint")
+                    report['multi_agent_analysis'] = {
+                        'error': 'Multi-agent analysis unavailable',
+                        'message': str(e)
+                    }
+                    yield f"data: {json.dumps({'stage': 'MULTI-AGENT', 'status': 'error', 'message': str(e)})}\n\n"
             
             # AI Enhancement (if available)
             if is_any_llm_available():
+                pipeline.start_stage("AI-ENHANCE", spec_name=spec_name)
                 yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'started', 'message': 'Enhancing with AI insights...'})}\n\n"
                 
                 try:
@@ -240,12 +292,15 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
                                 enhanced_count += 1
                         
                         duration = time.time() - start_time
+                        pipeline.end_stage("AI-ENHANCE", provider=provider_info['provider'], model=provider_info['model'], enhanced_count=enhanced_count)
                         yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'completed', 'duration': round(duration, 3), 'provider': provider_info['provider']})}\n\n"
                     else:
+                        pipeline.end_stage("AI-ENHANCE", available=False)
                         report['ai_insights'] = {'available': False, 'message': 'No LLM provider available'}
                         yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'skipped', 'message': 'No LLM provider available'})}\n\n"
                         
                 except Exception as e:
+                    pipeline.stage_error("AI-ENHANCE", e)
                     logger.warning(f"AI enhancement failed: {e}")
                     report['ai_insights'] = {'error': 'AI enhancement unavailable', 'message': str(e)}
                     yield f"data: {json.dumps({'stage': 'AI-ENHANCE', 'status': 'error', 'message': str(e)})}\n\n"
@@ -345,8 +400,8 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
         report = build_report(spec_name, health, findings)
         pipeline.end_stage("REPORT", findings_count=len(report['findings']))
 
-        # MULTI-AGENT: Run specialized agents in parallel (optional)
-        use_multi_agent = os.getenv("USE_MULTI_AGENT", "false").lower() == "true"
+        # MULTI-AGENT: Run specialized agents in parallel (enabled by default)
+        use_multi_agent = os.getenv("USE_MULTI_AGENT", "true").lower() == "true"
         
         if use_multi_agent:
             try:

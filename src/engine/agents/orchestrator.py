@@ -16,7 +16,10 @@ from .documentation_agent import DocumentationAgent
 from .governance_agent import GovernanceAgent
 from .base_agent import AgentAnalysis
 
-logger = logging.getLogger(__name__)
+# Use centralized logging
+from src.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
