@@ -1024,8 +1024,18 @@ function createIssueFixGroupElement(title, data) {
             `;
         }
 
-        // Recommended Fix section (without copy button)
-        if (item.fix_guidance || item.fix) {
+        // AI-Generated Fix (priority - from WatsonX/LLM)
+        if (item.ai_suggested_fix) {
+            html += `
+                <div class="issue-fix-section ai-fix-section">
+                    <strong>🤖 AI-Recommended Fix:</strong>
+                    <div class="ai-fix-content">${escapeHtml(item.ai_suggested_fix)}</div>
+                </div>
+            `;
+        }
+
+        // Fallback to standard fix guidance
+        if (!item.ai_suggested_fix && (item.fix_guidance || item.fix)) {
             const fixContent = item.fix_guidance || item.fix;
             html += `
                 <div class="issue-fix-section">

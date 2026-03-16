@@ -12,6 +12,10 @@ import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Path setup for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -58,8 +62,9 @@ app.add_middleware(FastAPILoggingMiddleware)
 from typing import Optional
 store: Optional[SpecSentinelVectorStore] = None
 
-# Constants
-MAX_AI_ENHANCED_FINDINGS = 5
+# AI Fix Generation Configuration (from environment variables)
+MAX_AI_ENHANCED_FINDINGS = int(os.getenv("AI_FIX_MAX_COUNT", "20"))
+AI_FIX_SEVERITIES = [s.strip() for s in os.getenv("AI_FIX_SEVERITIES", "Critical,High,Medium").split(",")]
 
 
 @app.on_event("startup")
@@ -79,6 +84,11 @@ async def startup_event():
         logger.info(f"Available LLM Providers: {', '.join(available_providers)}")
     else:
         logger.warning("No LLM providers configured - AI analysis will be limited")
+    
+    # Log AI Fix Generation Configuration
+    logger.info(f"AI Fix Generation Config:")
+    logger.info(f"  - Max Findings: {MAX_AI_ENHANCED_FINDINGS}")
+    logger.info(f"  - Severities: {', '.join(AI_FIX_SEVERITIES)}")
     
     logger.info("Initializing SpecSentinel Vector Store...")
     store = SpecSentinelVectorStore()
@@ -315,14 +325,21 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
                         # Add AI explanations and fix code to top findings in parallel
                         from concurrent.futures import ThreadPoolExecutor, as_completed
                         
-                        critical_high_findings = [
-                            f for f in report['findings']
-                            if f['severity'] in ['Critical', 'High']
-                        ][:MAX_AI_ENHANCED_FINDINGS]
+                        # Get findings based on configured severity levels for AI enhancement
+                        # Apply MAX_AI_ENHANCED_FINDINGS per severity category
+                        priority_findings = []
+                        for severity in AI_FIX_SEVERITIES:
+                            severity_findings = [
+                                f for f in report['findings']
+                                if f.get('severity') == severity
+                            ][:MAX_AI_ENHANCED_FINDINGS]
+                            priority_findings.extend(severity_findings)
+                        
+                        logger.info(f"Selected {len(priority_findings)} findings for AI enhancement across {len(AI_FIX_SEVERITIES)} severity levels")
                         
                         enhanced_count = 0
-                        if critical_high_findings:
-                            with ThreadPoolExecutor(max_workers=3) as executor:
+                        if priority_findings:
+                            with ThreadPoolExecutor(max_workers=5) as executor:
                                 # Submit all enhancement tasks
                                 future_to_finding = {
                                     executor.submit(
@@ -332,7 +349,7 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
                                         ),
                                         finding
                                     ): finding
-                                    for finding in critical_high_findings
+                                    for finding in priority_findings
                                 }
                                 
                                 # Collect results as they complete

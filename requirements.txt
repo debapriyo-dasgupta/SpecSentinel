@@ -29,6 +29,7 @@ python-dateutil>=2.9.0
 # Install at least one for AI-powered insights:
 openai>=1.12.0             # OpenAI GPT models (gpt-4o-mini, gpt-4o)
 anthropic>=0.18.0          # Anthropic Claude models (claude-3-5-sonnet, claude-3-haiku)
+ibm-watsonx-ai>=1.0.0      # IBM WatsonX.ai models (granite-13b-chat-v2, llama-3-70b-instruct, mixtral-8x7b)
 google-generativeai>=0.3.0 # Google Gemini models (gemini-1.5-pro, gemini-1.5-flash)
 
 # ===== Frontend Dependencies =====

@@ -53,6 +53,16 @@ setup(
             "flake8>=6.0.0",
             "mypy>=1.0.0",
         ],
+        "ai": [
+            "openai>=1.12.0",
+            "anthropic>=0.18.0",
+            "ibm-watsonx-ai>=1.0.0",
+            "google-generativeai>=0.3.0",
+        ],
+        "ai-openai": ["openai>=1.12.0"],
+        "ai-anthropic": ["anthropic>=0.18.0"],
+        "ai-watsonx": ["ibm-watsonx-ai>=1.0.0"],
+        "ai-google": ["google-generativeai>=0.3.0"],
     },
     entry_points={
         "console_scripts": [

@@ -6,7 +6,8 @@ SpecSentinel now supports **multiple LLM providers** with automatic fallback:
 
 1. **OpenAI** (GPT-4o-mini, GPT-4o)
 2. **Anthropic Claude** (Claude 3.5 Sonnet, Claude 3 Haiku)
-3. **Google Gemini** (Gemini 1.5 Pro, Gemini 1.5 Flash)
+3. **IBM WatsonX.ai** (Granite, Llama, Mixtral models)
+4. **Google Gemini** (Gemini 1.5 Pro, Gemini 1.5 Flash)
 
 The system automatically detects which API keys are available and uses the best provider.
 
@@ -48,7 +49,27 @@ export ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"  # or "claude-3-haiku-202403
 
 ---
 
-### Option 3: Google Gemini (Best Cost/Performance)
+### Option 3: IBM WatsonX.ai (Enterprise-Grade)
+
+```bash
+# Install
+pip install ibm-watsonx-ai>=1.0.0
+
+# Set credentials
+export WATSONX_API_KEY="your-ibm-cloud-api-key"
+export WATSONX_PROJECT_ID="your-project-id"
+export WATSONX_URL="https://us-south.ml.cloud.ibm.com"
+
+# Optional: Choose model
+export WATSONX_MODEL="ibm/granite-13b-chat-v2"
+```
+
+**Get API Key**: https://cloud.ibm.com/
+**Detailed Setup**: See [WATSONX_SETUP.md](./WATSONX_SETUP.md)
+
+---
+
+### Option 4: Google Gemini (Best Cost/Performance)
 
 ```bash
 # Install
@@ -71,8 +92,9 @@ The system automatically selects providers in this priority order:
 
 1. **OpenAI** (if `OPENAI_API_KEY` is set)
 2. **Anthropic** (if `ANTHROPIC_API_KEY` is set)
-3. **Google** (if `GOOGLE_API_KEY` is set)
-4. **None** (gracefully degrades, no AI insights)
+3. **IBM WatsonX** (if `WATSONX_API_KEY` and `WATSONX_PROJECT_ID` are set)
+4. **Google** (if `GOOGLE_API_KEY` is set)
+5. **None** (gracefully degrades, no AI insights)
 
 ### Example: Multiple Keys
 
@@ -80,6 +102,8 @@ The system automatically selects providers in this priority order:
 # Set multiple keys - OpenAI will be used first
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export WATSONX_API_KEY="..."
+export WATSONX_PROJECT_ID="..."
 export GOOGLE_API_KEY="..."
 
 # Run the app
@@ -101,8 +125,12 @@ python run_app.py
 | **OpenAI** | gpt-4o | $2.50 / $10.00 | Moderate | Very High | 128K |
 | **Anthropic** | claude-3-5-sonnet | $3.00 / $15.00 | Fast | Excellent | 200K |
 | **Anthropic** | claude-3-haiku | $0.25 / $1.25 | Very Fast | Good | 200K |
+| **WatsonX** | granite-13b-chat-v2 | Varies* | Fast | Good | 8K |
+| **WatsonX** | llama-3-70b-instruct | Varies* | Moderate | Excellent | 8K |
 | **Google** | gemini-1.5-flash | $0.075 / $0.30 | Very Fast | Good | 1M |
 | **Google** | gemini-1.5-pro | $1.25 / $5.00 | Moderate | High | 2M |
+
+*WatsonX pricing varies by IBM Cloud plan and region
 
 ---
 
@@ -113,8 +141,11 @@ python run_app.py
 | Google | gemini-1.5-flash | **$0.005-0.01** | Budget |
 | Anthropic | claude-3-haiku | $0.01-0.02 | Speed + Cost |
 | OpenAI | gpt-4o-mini | $0.01-0.05 | Balanced |
+| WatsonX | granite-13b-chat-v2 | $0.02-0.08* | Enterprise |
 | Anthropic | claude-3-5-sonnet | $0.05-0.10 | Quality |
 | OpenAI | gpt-4o | $0.10-0.20 | Premium |
+
+*WatsonX costs depend on IBM Cloud plan
 
 ---
 
@@ -126,11 +157,14 @@ python run_app.py
 # Provider API Keys (set at least one)
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export WATSONX_API_KEY="..."
+export WATSONX_PROJECT_ID="..."
 export GOOGLE_API_KEY="..."
 
 # Model Selection (optional)
 export OPENAI_MODEL="gpt-4o-mini"
 export ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"
+export WATSONX_MODEL="ibm/granite-13b-chat-v2"
 export GOOGLE_MODEL="gemini-1.5-flash"
 ```
 
@@ -146,6 +180,12 @@ OPENAI_MODEL=gpt-4o-mini
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+
+# IBM WatsonX.ai
+WATSONX_API_KEY=your-ibm-cloud-api-key
+WATSONX_PROJECT_ID=your-project-id
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+WATSONX_MODEL=ibm/granite-13b-chat-v2
 
 # Google
 GOOGLE_API_KEY=your-key-here
@@ -164,7 +204,7 @@ python -c "from src.engine.ai_agent_universal import get_available_providers; pr
 
 **Output**:
 ```
-Available: ['openai', 'anthropic', 'google']
+Available: ['openai', 'anthropic', 'watsonx', 'google']
 ```
 
 ### Test Specific Provider
@@ -197,6 +237,12 @@ print(agent.get_provider_info())
 - ✅ Longer context (200K)
 - ✅ Better at following instructions
 
+### IBM WatsonX.ai
+- ✅ Enterprise-grade security
+- ✅ On-premises deployment option
+- ✅ IBM Granite models optimized for business
+- ✅ Compliance-ready (GDPR, HIPAA)
+
 ### Google Gemini
 - ✅ Cheapest option
 - ✅ Fastest responses
@@ -213,6 +259,7 @@ print(agent.get_provider_info())
 |----------|----------------|----------|--------|
 | OpenAI | 30 days | Opt-out available | US |
 | Anthropic | Not used for training | Never | US |
+| WatsonX | Configurable | Never | Multi-region |
 | Google | Not used for training | Never | Global |
 
 ### Best Practices
@@ -237,11 +284,11 @@ env | grep -E "(OPENAI|ANTHROPIC|GOOGLE)_API_KEY"
 export OPENAI_API_KEY="sk-..."
 ```
 
-### Issue: "Import error: openai/anthropic/google"
+### Issue: "Import error: openai/anthropic/watsonx/google"
 
 ```bash
 # Install missing package
-pip install openai anthropic google-generativeai
+pip install openai anthropic ibm-watsonx-ai google-generativeai
 
 # Or install all at once
 pip install -r requirements.txt
@@ -252,11 +299,14 @@ pip install -r requirements.txt
 1. Check key format:
    - OpenAI: starts with `sk-`
    - Anthropic: starts with `sk-ant-`
+   - WatsonX: IBM Cloud API key format
    - Google: alphanumeric string
 
 2. Verify key is active in provider dashboard
 
 3. Check for typos or extra spaces
+
+4. For WatsonX: Ensure both API key AND project ID are set
 
 ### Issue: "Rate limit exceeded"
 
@@ -376,6 +426,7 @@ agent = UniversalAIAgent()  # Auto-detects provider
 
 - **OpenAI**: https://help.openai.com/
 - **Anthropic**: https://support.anthropic.com/
+- **IBM WatsonX**: https://www.ibm.com/support
 - **Google**: https://ai.google.dev/support
 
 ### SpecSentinel Issues
@@ -399,5 +450,5 @@ Check logs for provider-specific errors:
 
 ---
 
-**Multi-LLM Support** - Choose the best provider for your needs!  
-Version 1.0.0 | SpecSentinel AI Agent
+**Multi-LLM Support** - Choose the best provider for your needs!
+Version 1.1.0 | SpecSentinel AI Agent | Now with WatsonX.ai Support!

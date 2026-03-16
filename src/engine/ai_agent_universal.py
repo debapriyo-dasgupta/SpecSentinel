@@ -3,6 +3,7 @@ SpecSentinel Universal AI Agent
 Supports multiple LLM providers with automatic fallback:
 - OpenAI (GPT-4o-mini, GPT-4o)
 - Anthropic Claude (Claude 3.5 Sonnet, Claude 3 Haiku)
+- IBM WatsonX.ai (Granite, Llama, Mixtral models)
 - Google Gemini (Gemini 1.5 Pro, Gemini 1.5 Flash)
 """
 
@@ -19,6 +20,7 @@ class LLMProvider(Enum):
     """Supported LLM providers"""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    WATSONX = "watsonx"
     GOOGLE = "google"
     NONE = "none"
 
@@ -40,7 +42,7 @@ class UniversalAIAgent:
     Universal AI Agent that supports multiple LLM providers.
     Automatically detects available API keys and uses the best available provider.
     
-    Priority order: OpenAI → Anthropic → Google → None
+    Priority order: OpenAI → Anthropic → WatsonX → Google → None
     
     Usage:
         agent = UniversalAIAgent()
@@ -53,7 +55,7 @@ class UniversalAIAgent:
         Initialize the Universal AI Agent.
         
         Args:
-            preferred_provider: Preferred LLM provider ("openai", "anthropic", "google")
+            preferred_provider: Preferred LLM provider ("openai", "anthropic", "watsonx", "google")
                                If None, auto-detects based on available API keys
         """
         self.provider = LLMProvider.NONE
@@ -95,7 +97,11 @@ class UniversalAIAgent:
         if self._init_anthropic():
             return
         
-        # Try Google third
+        # Try WatsonX third
+        if self._init_watsonx():
+            return
+        
+        # Try Google fourth
         if self._init_google():
             return
         
@@ -110,6 +116,8 @@ class UniversalAIAgent:
             return self._init_openai()
         elif provider_name in ["anthropic", "claude"]:
             return self._init_anthropic()
+        elif provider_name in ["watsonx", "watson", "ibm"]:
+            return self._init_watsonx()
         elif provider_name in ["google", "gemini"]:
             return self._init_google()
         else:
@@ -152,6 +160,37 @@ class UniversalAIAgent:
             return False
         except Exception as e:
             logger.error(f"Failed to initialize Anthropic: {e}")
+            return False
+    
+    def _init_watsonx(self) -> bool:
+        """Initialize IBM WatsonX.ai provider."""
+        api_key = os.getenv("WATSONX_API_KEY")
+        project_id = os.getenv("WATSONX_PROJECT_ID")
+        
+        if not api_key or not project_id:
+            return False
+        
+        try:
+            from ibm_watsonx_ai.foundation_models import Model
+            from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
+            
+            url = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
+            model_id = os.getenv("WATSONX_MODEL", "ibm/granite-13b-chat-v2")
+            
+            self.client = Model(
+                model_id=model_id,
+                credentials={"apikey": api_key, "url": url},
+                project_id=project_id
+            )
+            self.model = model_id
+            self.provider = LLMProvider.WATSONX
+            self.watsonx_params = GenParams  # Store for later use
+            return True
+        except ImportError:
+            logger.warning("WatsonX package not installed. Install with: pip install ibm-watsonx-ai")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to initialize WatsonX: {e}")
             return False
     
     def _init_google(self) -> bool:
@@ -250,9 +289,9 @@ Keep it concise and actionable.
             return f"Issue: {finding.get('title')}. {finding.get('fix_guidance', 'Manual review required.')}"
     
     def generate_fix_code(self, finding: dict, spec: dict) -> str:
-        """Generate YAML code to fix the issue."""
+        """Generate simple, actionable fix instructions."""
         if not self.is_available():
-            return f"# Fix for: {finding.get('title')}\n# {finding.get('fix_guidance', 'Manual fix required')}"
+            return f"Fix: {finding.get('fix_guidance', 'Manual fix required')}"
         
         try:
             context = finding.get('context', {})
@@ -260,23 +299,28 @@ Keep it concise and actionable.
             method = context.get('method', '')
             
             prompt = f"""
-Generate the exact YAML code to fix this OpenAPI specification issue:
+You are helping a developer fix an API specification issue. Provide a SIMPLE, CLEAR fix in plain English.
 
 **Issue**: {finding.get('title', 'Unknown')}
-**Evidence**: {finding.get('evidence', 'Not provided')}
+**Problem**: {finding.get('evidence', 'Not provided')}
 **Location**: {path} {method}
-**Fix Guidance**: {finding.get('fix_guidance', 'Not provided')}
 
-Provide ONLY the YAML code snippet that should be added or modified.
-Include comments explaining the fix.
-Format it properly with correct indentation.
+Provide a fix in this format:
+
+**Quick Fix:**
+[Write 1-2 sentences explaining what to do in simple terms]
+
+**Example YAML:**
+[Show a small, focused YAML snippet with the fix]
+
+Keep it SHORT and ACTIONABLE. Use simple language. Focus on the specific change needed.
 """
             
-            return self._call_llm(prompt, max_tokens=500, temperature=0.2)
+            return self._call_llm(prompt, max_tokens=400, temperature=0.2)
             
         except Exception as e:
             logger.error(f"Failed to generate fix code: {e}")
-            return f"# Fix for: {finding.get('title')}\n# {finding.get('fix_guidance', 'Manual fix required')}"
+            return f"Fix: {finding.get('fix_guidance', 'Manual fix required')}"
     
     # ── LLM Call Dispatcher ──────────────────────────────────────────────────
     
@@ -286,6 +330,8 @@ Format it properly with correct indentation.
             return self._call_openai(prompt, max_tokens, temperature)
         elif self.provider == LLMProvider.ANTHROPIC:
             return self._call_anthropic(prompt, max_tokens, temperature)
+        elif self.provider == LLMProvider.WATSONX:
+            return self._call_watsonx(prompt, max_tokens, temperature)
         elif self.provider == LLMProvider.GOOGLE:
             return self._call_google(prompt, max_tokens, temperature)
         else:
@@ -318,6 +364,17 @@ Format it properly with correct indentation.
             ]
         )
         return response.content[0].text
+    
+    def _call_watsonx(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Call IBM WatsonX.ai API."""
+        parameters = {
+            self.watsonx_params.MAX_NEW_TOKENS: max_tokens,
+            self.watsonx_params.TEMPERATURE: temperature,
+            self.watsonx_params.DECODING_METHOD: "greedy"
+        }
+        
+        response = self.client.generate_text(prompt=prompt, params=parameters)
+        return response
     
     def _call_google(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """Call Google Gemini API."""
@@ -471,6 +528,8 @@ def get_available_providers() -> List[str]:
         providers.append("openai")
     if os.getenv("ANTHROPIC_API_KEY"):
         providers.append("anthropic")
+    if os.getenv("WATSONX_API_KEY") and os.getenv("WATSONX_PROJECT_ID"):
+        providers.append("watsonx")
     if os.getenv("GOOGLE_API_KEY"):
         providers.append("google")
     
