@@ -241,6 +241,89 @@ class SpecSentinelVectorStore:
         matched.sort(key=lambda x: x["similarity"], reverse=True)
         return matched
 
+    def query_rules_batch(
+        self,
+        category: str,
+        query_texts: list[str],
+        n_results: int = 5,
+        severity_filter: Optional[str] = None,
+    ) -> list[list[dict]]:
+        """
+        Batch semantic search for multiple queries at once.
+        
+        Args:
+            category:        One of security, design, error_handling, documentation, governance
+            query_texts:     List of natural language descriptions
+            n_results:       Number of top matching rules per query
+            severity_filter: Optional filter e.g. "Critical" or "High"
+        
+        Returns:
+            List of matched rule lists (one list per query_text)
+        """
+        col = self._collections.get(category)
+        if col is None:
+            logger.warning(f"Collection '{category}' not found. Run initialize() first.")
+            return [[] for _ in query_texts]
+        
+        if not query_texts:
+            return []
+        
+        collection_size = col.count()
+        logger.debug(f"Batch querying {len(query_texts)} texts against {collection_size} rules in '{category}' collection")
+        
+        where_filter = {}
+        if severity_filter:
+            where_filter = {"severity": {"$eq": severity_filter}}
+            logger.debug(f"Applying severity filter: {severity_filter}")
+        
+        # Batch query - ChromaDB processes all queries in one call
+        results = col.query(
+            query_texts=query_texts,
+            n_results=min(n_results, collection_size),
+            where=where_filter if where_filter else None,
+        )
+        
+        # Process results for each query
+        all_matched = []
+        if not results or not results["ids"]:
+            logger.debug(f"No results returned from batch query for category '{category}'")
+            return [[] for _ in query_texts]
+        
+        total_results = 0
+        for query_idx in range(len(query_texts)):
+            matched = []
+            if query_idx >= len(results["ids"]):
+                all_matched.append(matched)
+                continue
+                
+            for i, rule_id in enumerate(results["ids"][query_idx]):
+                meta = results["metadatas"][query_idx][i]
+                doc  = results["documents"][query_idx][i]
+                dist = results["distances"][query_idx][i]
+                
+                matched.append({
+                    "rule_id":       rule_id,
+                    "title":         meta.get("title"),
+                    "severity":      meta.get("severity"),
+                    "category":      meta.get("category"),
+                    "source":        meta.get("source"),
+                    "benchmark":     meta.get("benchmark"),
+                    "weight":        meta.get("weight"),
+                    "fix_guidance":  meta.get("fix_guidance"),
+                    "check_pattern": meta.get("check_pattern"),
+                    "tags":          meta.get("tags", "").split(","),
+                    "similarity":    round(1 - dist, 4),
+                    "document":      doc,
+                })
+            
+            # Sort by similarity descending
+            matched.sort(key=lambda x: x["similarity"], reverse=True)
+            all_matched.append(matched)
+            total_results += len(matched)
+        
+        logger.debug(f"Batch query returned {total_results} total matches across {len(query_texts)} queries")
+        return all_matched
+
     def get_collection_stats(self) -> dict:
         """Return rule counts per collection."""
         stats = {}

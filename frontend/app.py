@@ -4,7 +4,7 @@ Serves the web interface and proxies API requests to the backend
 """
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
-import requests
+import httpx
 import os
 import sys
 from pathlib import Path
@@ -26,8 +26,20 @@ FlaskLoggingMiddleware(app)
 
 # Configuration
 BACKEND_API_URL = os.environ.get('BACKEND_API_URL', 'http://localhost:8000')
+REQUEST_TIMEOUT = 30  # seconds
 
-logger.info(f"Frontend initialized, backend URL: {BACKEND_API_URL}")
+# Create sync HTTP client with connection pooling for non-streaming requests
+sync_client = httpx.Client(
+    timeout=REQUEST_TIMEOUT,
+    limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
+)
+
+logger.info("=" * 70)
+logger.info("SpecSentinel Frontend Starting...")
+logger.info("=" * 70)
+logger.info(f"Backend API URL: {BACKEND_API_URL}")
+logger.info(f"Flask Environment: {os.environ.get('FLASK_ENV', 'production')}")
+logger.info(f"Log Level: {os.environ.get('LOG_LEVEL', 'INFO')}")
 
 # Routes
 @app.route('/')
@@ -40,9 +52,9 @@ def index():
 def health():
     """Proxy health check to backend"""
     try:
-        response = requests.get(f'{BACKEND_API_URL}/health')
+        response = sync_client.get(f'{BACKEND_API_URL}/health')
         return jsonify(response.json()), response.status_code
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Backend health check failed: {e}")
         return jsonify({'error': str(e), 'status': 'backend_unavailable'}), 503
 
@@ -50,9 +62,9 @@ def health():
 def stats():
     """Proxy stats request to backend"""
     try:
-        response = requests.get(f'{BACKEND_API_URL}/stats')
+        response = sync_client.get(f'{BACKEND_API_URL}/stats')
         return jsonify(response.json()), response.status_code
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Backend stats request failed: {e}")
         return jsonify({'error': str(e)}), 503
 
@@ -70,9 +82,11 @@ def analyze():
         # Get format parameter
         format_type = request.args.get('format', 'json')
         
-        # Forward file to backend
-        files = {'file': (file.filename, file.stream, file.content_type)}
-        response = requests.post(
+        # Read file content once
+        content = file.read()
+        files = {'file': (file.filename, content, file.content_type)}
+        
+        response = sync_client.post(
             f'{BACKEND_API_URL}/analyze',
             files=files,
             params={'format': format_type}
@@ -83,7 +97,7 @@ def analyze():
         else:
             return jsonify(response.json()), response.status_code
             
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Backend analyze request failed: {e}")
         return jsonify({'error': str(e), 'detail': 'Backend API error'}), 503
     except Exception as e:
@@ -105,33 +119,83 @@ def analyze_stream():
         
         logger.info(f"Proxying streaming analyze request for file: {file.filename}")
         
-        # Forward to backend with streaming
-        files = {'file': (file.filename, file.read(), file.content_type)}
+        # Read file content
+        content = file.read()
+        files = {'file': (file.filename, content, file.content_type)}
         
         def generate():
-            """Stream events from backend to frontend"""
-            try:
-                with requests.post(
-                    f'{BACKEND_API_URL}/analyze/stream',
-                    files=files,
-                    stream=True
-                ) as response:
-                    logger.info(f"Backend streaming response status: {response.status_code}")
+            """Stream events from backend to frontend (sync wrapper for async operations)"""
+            import asyncio
+            import threading
+            
+            # Use a queue to pass data from async to sync context
+            from queue import Queue
+            result_queue = Queue()
+            exception_holder = []
+            
+            def run_async_stream():
+                """Run async streaming in a separate thread with its own event loop"""
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
                     
-                    if response.status_code == 200:
-                        for line in response.iter_lines():
-                            if line:
-                                yield line.decode('utf-8') + '\n'
-                    else:
-                        error_msg = f'{{"stage": "ERROR", "status": "error", "message": "Backend error: {response.status_code}"}}'
-                        yield f'data: {error_msg}\n\n'
-                        
-            except requests.exceptions.ConnectionError:
-                logger.error("Failed to connect to backend API for streaming")
-                error_msg = '{"stage": "ERROR", "status": "error", "message": "Backend API unavailable"}'
-                yield f'data: {error_msg}\n\n'
+                    async def async_stream():
+                        # Create a new async client in this thread's event loop
+                        async with httpx.AsyncClient(
+                            timeout=REQUEST_TIMEOUT,
+                            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                        ) as client:
+                            try:
+                                async with client.stream(
+                                    'POST',
+                                    f'{BACKEND_API_URL}/analyze/stream',
+                                    files=files
+                                ) as response:
+                                    logger.info(f"Backend streaming response status: {response.status_code}")
+                                    
+                                    if response.status_code == 200:
+                                        async for line in response.aiter_lines():
+                                            if line:
+                                                result_queue.put(('data', line + '\n'))
+                                    else:
+                                        error_msg = f'{{"stage": "ERROR", "status": "error", "message": "Backend error: {response.status_code}"}}'
+                                        result_queue.put(('data', f'data: {error_msg}\n\n'))
+                            except httpx.ConnectError:
+                                logger.error("Failed to connect to backend API for streaming")
+                                error_msg = '{"stage": "ERROR", "status": "error", "message": "Backend API unavailable"}'
+                                result_queue.put(('data', f'data: {error_msg}\n\n'))
+                            except Exception as e:
+                                logger.exception("Error in streaming analyze")
+                                error_msg = f'{{"stage": "ERROR", "status": "error", "message": "{str(e)}"}}'
+                                result_queue.put(('data', f'data: {error_msg}\n\n'))
+                            finally:
+                                result_queue.put(('done', None))
+                    
+                    loop.run_until_complete(async_stream())
+                    loop.close()
+                    
+                except Exception as e:
+                    exception_holder.append(e)
+                    result_queue.put(('done', None))
+            
+            # Start async streaming in background thread
+            stream_thread = threading.Thread(target=run_async_stream, daemon=True)
+            stream_thread.start()
+            
+            # Yield results from queue
+            try:
+                while True:
+                    msg_type, data = result_queue.get()
+                    if msg_type == 'done':
+                        break
+                    yield data
+                    
+                if exception_holder:
+                    error_msg = f'{{"stage": "ERROR", "status": "error", "message": "{str(exception_holder[0])}"}}'
+                    yield f'data: {error_msg}\n\n'
+                    
             except Exception as e:
-                logger.exception("Error in streaming analyze")
+                logger.exception("Error in streaming generator")
                 error_msg = f'{{"stage": "ERROR", "status": "error", "message": "{str(e)}"}}'
                 yield f'data: {error_msg}\n\n'
         
@@ -160,7 +224,7 @@ def analyze_text():
         format_type = request.args.get('format', 'json')
         
         # Forward to backend
-        response = requests.post(
+        response = sync_client.post(
             f'{BACKEND_API_URL}/analyze/text',
             json=data,
             params={'format': format_type},
@@ -172,7 +236,7 @@ def analyze_text():
         else:
             return jsonify(response.json()), response.status_code
             
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Backend analyze/text request failed: {e}")
         return jsonify({'error': str(e), 'detail': 'Backend API error'}), 503
     except Exception as e:
@@ -183,9 +247,9 @@ def analyze_text():
 def refresh():
     """Proxy refresh request to backend"""
     try:
-        response = requests.post(f'{BACKEND_API_URL}/refresh')
+        response = sync_client.post(f'{BACKEND_API_URL}/refresh')
         return jsonify(response.json()), response.status_code
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Backend refresh request failed: {e}")
         return jsonify({'error': str(e)}), 503
 
@@ -206,11 +270,14 @@ def internal_error(error):
 
 if __name__ == '__main__':
     # Development server
-    logger.info("Starting Flask development server on http://0.0.0.0:5000")
+    logger.info("=" * 70)
+    logger.info("SpecSentinel Frontend Ready!")
+    logger.info("Server: http://localhost:5000")
+    logger.info("=" * 70)
     app.run(
         host='0.0.0.0',
         port=5000,
-        debug=True
+        debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
     )
 
 # Made with Bob

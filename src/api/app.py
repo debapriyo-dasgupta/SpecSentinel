@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 
 # NEW: Import centralized logging
 from src.utils.logging_config import get_logger, PipelineLogger, log_performance
@@ -54,27 +55,53 @@ app.add_middleware(
 app.add_middleware(FastAPILoggingMiddleware)
 
 # ── Shared state ──────────────────────────────────────────────────────────────
-store: SpecSentinelVectorStore = None
+from typing import Optional
+store: Optional[SpecSentinelVectorStore] = None
+
+# Constants
+MAX_AI_ENHANCED_FINDINGS = 5
 
 
 @app.on_event("startup")
 async def startup_event():
     global store
+    logger.info("=" * 70)
+    logger.info("SpecSentinel Backend Starting...")
+    logger.info("=" * 70)
+    
+    # Check multi-agent mode
+    use_multi_agent = os.getenv("USE_MULTI_AGENT", "false").lower() == "true"
+    logger.info(f"Multi-Agent Mode: {'ENABLED' if use_multi_agent else 'DISABLED'}")
+    
+    # Check LLM availability
+    available_providers = get_available_providers()
+    if available_providers:
+        logger.info(f"Available LLM Providers: {', '.join(available_providers)}")
+    else:
+        logger.warning("No LLM providers configured - AI analysis will be limited")
+    
     logger.info("Initializing SpecSentinel Vector Store...")
     store = SpecSentinelVectorStore()
     store.initialize()   # Seeds from local JSON if collections are empty
 
     stats = store.get_collection_stats()
-    logger.info(f"Vector DB ready: {stats}")
+    logger.info(f"Vector DB Collections Ready:")
+    for category, count in stats.items():
+        logger.info(f"  - {category}: {count} rules")
 
     # Start background ingestion scheduler (weekly refresh from external sources)
+    logger.info("Starting background ingestion scheduler...")
     start_scheduler(
         store,
         run_now=False,     # Set True to ingest from web on startup
         schedule="weekly",
         background=True,
     )
-    logger.info("SpecSentinel ready.")
+    
+    logger.info("=" * 70)
+    logger.info("SpecSentinel Backend Ready!")
+    logger.info("API Documentation: http://localhost:8000/docs")
+    logger.info("=" * 70)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -128,7 +155,8 @@ async def analyze_spec(file: UploadFile = File(...), format: str = "json"):
     except ValueError as e:
         raise HTTPException(400, f"Could not parse spec: {e}")
 
-    report = _run_pipeline(spec, spec_name)
+    # Run pipeline in thread pool to avoid blocking event loop
+    report = await run_in_threadpool(_run_pipeline, spec, spec_name)
 
     if format == "text":
         return PlainTextResponse(render_text_report(report))
@@ -284,12 +312,39 @@ async def analyze_spec_stream(file: UploadFile = File(...)):
                             'provider': ai_insights.provider
                         }
                         
+                        # Add AI explanations and fix code to top findings in parallel
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
+                        
+                        critical_high_findings = [
+                            f for f in report['findings']
+                            if f['severity'] in ['Critical', 'High']
+                        ][:MAX_AI_ENHANCED_FINDINGS]
+                        
                         enhanced_count = 0
-                        for finding in report['findings']:
-                            if finding['severity'] in ['Critical', 'High'] and enhanced_count < 5:
-                                finding['ai_explanation'] = ai_agent.explain_finding(finding)
-                                finding['ai_suggested_fix'] = ai_agent.generate_fix_code(finding, spec)
-                                enhanced_count += 1
+                        if critical_high_findings:
+                            with ThreadPoolExecutor(max_workers=3) as executor:
+                                # Submit all enhancement tasks
+                                future_to_finding = {
+                                    executor.submit(
+                                        lambda f: (
+                                            ai_agent.explain_finding(f),
+                                            ai_agent.generate_fix_code(f, spec)
+                                        ),
+                                        finding
+                                    ): finding
+                                    for finding in critical_high_findings
+                                }
+                                
+                                # Collect results as they complete
+                                for future in as_completed(future_to_finding):
+                                    finding = future_to_finding[future]
+                                    try:
+                                        explanation, fix_code = future.result()
+                                        finding['ai_explanation'] = explanation
+                                        finding['ai_suggested_fix'] = fix_code
+                                        enhanced_count += 1
+                                    except Exception as e:
+                                        logger.warning(f"Failed to enhance finding: {e}")
                         
                         duration = time.time() - start_time
                         pipeline.end_stage("AI-ENHANCE", provider=provider_info['provider'], model=provider_info['model'], enhanced_count=enhanced_count)
@@ -342,7 +397,8 @@ async def analyze_spec_text(body: dict, format: str = "json"):
         except ValueError as e:
             raise HTTPException(400, str(e))
 
-    report = _run_pipeline(spec, spec_name)
+    # Run pipeline in thread pool to avoid blocking event loop
+    report = await run_in_threadpool(_run_pipeline, spec, spec_name)
 
     if format == "text":
         return PlainTextResponse(render_text_report(report))
@@ -454,13 +510,39 @@ def _run_pipeline(spec: dict, spec_name: str) -> dict:
                         'provider': ai_insights.provider
                     }
                     
-                    # Add AI explanations and fix code to top 5 critical/high findings
+                    # Add AI explanations and fix code to top findings in parallel
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    
+                    critical_high_findings = [
+                        f for f in report['findings']
+                        if f['severity'] in ['Critical', 'High']
+                    ][:MAX_AI_ENHANCED_FINDINGS]
+                    
                     enhanced_count = 0
-                    for finding in report['findings']:
-                        if finding['severity'] in ['Critical', 'High'] and enhanced_count < 5:
-                            finding['ai_explanation'] = ai_agent.explain_finding(finding)
-                            finding['ai_suggested_fix'] = ai_agent.generate_fix_code(finding, spec)
-                            enhanced_count += 1
+                    if critical_high_findings:
+                        with ThreadPoolExecutor(max_workers=3) as executor:
+                            # Submit all enhancement tasks
+                            future_to_finding = {
+                                executor.submit(
+                                    lambda f: (
+                                        ai_agent.explain_finding(f),
+                                        ai_agent.generate_fix_code(f, spec)
+                                    ),
+                                    finding
+                                ): finding
+                                for finding in critical_high_findings
+                            }
+                            
+                            # Collect results as they complete
+                            for future in as_completed(future_to_finding):
+                                finding = future_to_finding[future]
+                                try:
+                                    explanation, fix_code = future.result()
+                                    finding['ai_explanation'] = explanation
+                                    finding['ai_suggested_fix'] = fix_code
+                                    enhanced_count += 1
+                                except Exception as e:
+                                    logger.warning(f"Failed to enhance finding: {e}")
                     
                     pipeline.end_stage(
                         "AI-ENHANCE",

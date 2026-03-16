@@ -39,9 +39,9 @@ FILE_LOGGING = os.getenv("FILE_LOGGING", "true").lower() == "true"
 MAX_BYTES = 10 * 1024 * 1024  # 10MB
 BACKUP_COUNT = 5
 
-# Log format
-CONSOLE_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
-FILE_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] [%(filename)s:%(lineno)d] %(message)s"
+# Log format - Enhanced for better readability
+CONSOLE_FORMAT = "%(asctime)s [%(levelname)-8s] [%(name)-25s] %(message)s"
+FILE_FORMAT = "%(asctime)s [%(levelname)-8s] [%(name)-25s] [%(filename)s:%(lineno)d] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -127,7 +127,7 @@ def setup_logging(
     
     # Console handler
     if enable_console:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(log_level)
         
         if enable_json if enable_json is not None else JSON_LOGGING:
@@ -140,20 +140,25 @@ def setup_logging(
     # File handler with rotation
     if enable_file if enable_file is not None else FILE_LOGGING:
         log_file = LOG_DIR / f"{name}.log"
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=MAX_BYTES,
-            backupCount=BACKUP_COUNT,
-            encoding='utf-8'
-        )
-        file_handler.setLevel(log_level)
-        
-        if enable_json if enable_json is not None else JSON_LOGGING:
-            file_handler.setFormatter(JSONFormatter())
-        else:
-            file_handler.setFormatter(logging.Formatter(FILE_FORMAT, DATE_FORMAT))
-        
-        logger.addHandler(file_handler)
+        try:
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=MAX_BYTES,
+                backupCount=BACKUP_COUNT,
+                encoding='utf-8',
+                delay=True  # Delay file opening until first write
+            )
+            file_handler.setLevel(log_level)
+            
+            if enable_json if enable_json is not None else JSON_LOGGING:
+                file_handler.setFormatter(JSONFormatter())
+            else:
+                file_handler.setFormatter(logging.Formatter(FILE_FORMAT, DATE_FORMAT))
+            
+            logger.addHandler(file_handler)
+        except Exception as e:
+            # If file handler fails, continue with console logging only
+            print(f"Warning: Could not create file handler for {log_file}: {e}", file=sys.stderr)
     
     # Prevent propagation to root logger
     logger.propagate = False

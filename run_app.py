@@ -7,7 +7,25 @@ import subprocess
 import sys
 import time
 import os
+import threading
+import queue
 from pathlib import Path
+
+# Constants
+STARTUP_DELAY = 2  # seconds to wait for server startup
+POLL_INTERVAL = 0.1  # seconds between process checks
+SHUTDOWN_TIMEOUT = 5  # seconds to wait for graceful shutdown
+
+def stream_output(process, prefix, output_queue):
+    """Read process output in a separate thread to prevent blocking"""
+    try:
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                output_queue.put((prefix, line.rstrip()))
+    except Exception as e:
+        output_queue.put((prefix, f"Error reading output: {e}"))
+    finally:
+        output_queue.put((prefix, None))  # Signal end of stream
 
 def start_backend():
     """Start the FastAPI backend server"""
@@ -42,15 +60,32 @@ def main():
     
     backend_process = None
     frontend_process = None
+    output_queue = queue.Queue()
+    backend_thread = None
+    frontend_thread = None
     
     try:
         # Start backend
         backend_process = start_backend()
-        time.sleep(2)  # Give backend time to start
+        
+        # Check if backend started successfully
+        time.sleep(0.5)
+        if backend_process.poll() is not None:
+            print("❌ Backend failed to start")
+            return
+        
+        time.sleep(STARTUP_DELAY - 0.5)  # Complete startup delay
         
         # Start frontend
         frontend_process = start_frontend()
-        time.sleep(2)  # Give frontend time to start
+        
+        # Check if frontend started successfully
+        time.sleep(0.5)
+        if frontend_process.poll() is not None:
+            print("❌ Frontend failed to start")
+            return
+        
+        time.sleep(STARTUP_DELAY - 0.5)  # Complete startup delay
         
         print()
         print("=" * 60)
@@ -66,28 +101,49 @@ def main():
         print("=" * 60)
         print()
         
-        # Stream output from both processes
-        while True:
+        # Start output reader threads to prevent pipe blocking
+        backend_thread = threading.Thread(
+            target=stream_output,
+            args=(backend_process, "Backend", output_queue),
+            daemon=True
+        )
+        frontend_thread = threading.Thread(
+            target=stream_output,
+            args=(frontend_process, "Frontend", output_queue),
+            daemon=True
+        )
+        backend_thread.start()
+        frontend_thread.start()
+        
+        # Monitor processes and print output
+        backend_alive = True
+        frontend_alive = True
+        
+        while backend_alive or frontend_alive:
             # Check if processes are still running
-            if backend_process.poll() is not None:
+            if backend_alive and backend_process.poll() is not None:
                 print("❌ Backend process stopped unexpectedly")
-                break
-            if frontend_process.poll() is not None:
+                backend_alive = False
+            if frontend_alive and frontend_process.poll() is not None:
                 print("❌ Frontend process stopped unexpectedly")
-                break
+                frontend_alive = False
             
-            # Read and print output
-            if backend_process.stdout:
-                line = backend_process.stdout.readline()
-                if line:
-                    print(f"[Backend] {line.rstrip()}")
+            # Print queued output (non-blocking)
+            try:
+                while True:
+                    prefix, line = output_queue.get_nowait()
+                    if line is None:
+                        # Thread signaled end of stream
+                        if prefix == "Backend":
+                            backend_alive = False
+                        else:
+                            frontend_alive = False
+                    else:
+                        print(f"[{prefix}] {line}")
+            except queue.Empty:
+                pass
             
-            if frontend_process.stdout:
-                line = frontend_process.stdout.readline()
-                if line:
-                    print(f"[Frontend] {line.rstrip()}")
-            
-            time.sleep(0.1)
+            time.sleep(POLL_INTERVAL)
             
     except KeyboardInterrupt:
         print("\n\n🛑 Shutting down servers...")
@@ -96,14 +152,28 @@ def main():
     finally:
         # Cleanup
         if backend_process:
+            print("Stopping backend...")
             backend_process.terminate()
-            backend_process.wait(timeout=5)
-            print("✅ Backend stopped")
+            try:
+                backend_process.wait(timeout=SHUTDOWN_TIMEOUT)
+                print("✅ Backend stopped")
+            except subprocess.TimeoutExpired:
+                print("⚠️  Backend didn't stop gracefully, forcing...")
+                backend_process.kill()
+                backend_process.wait()
+                print("✅ Backend killed")
         
         if frontend_process:
+            print("Stopping frontend...")
             frontend_process.terminate()
-            frontend_process.wait(timeout=5)
-            print("✅ Frontend stopped")
+            try:
+                frontend_process.wait(timeout=SHUTDOWN_TIMEOUT)
+                print("✅ Frontend stopped")
+            except subprocess.TimeoutExpired:
+                print("⚠️  Frontend didn't stop gracefully, forcing...")
+                frontend_process.kill()
+                frontend_process.wait()
+                print("✅ Frontend killed")
         
         print("\n👋 SpecSentinel stopped successfully")
 
