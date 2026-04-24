@@ -26,7 +26,7 @@ FlaskLoggingMiddleware(app)
 
 # Configuration
 BACKEND_API_URL = os.environ.get('BACKEND_API_URL', 'http://localhost:8000')
-REQUEST_TIMEOUT = 30  # seconds
+REQUEST_TIMEOUT = 300  # seconds (increased for WatsonX API calls)
 
 # Create sync HTTP client with connection pooling for non-streaming requests
 sync_client = httpx.Client(
