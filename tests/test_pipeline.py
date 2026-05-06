@@ -16,11 +16,11 @@ from pathlib import Path
 # Path setup
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.vectordb.store.chroma_client import SpecSentinelVectorStore
-from src.engine.signal_extractor import OpenAPISignalExtractor
-from src.engine.rule_matcher import RuleMatcher
-from src.engine.scorer import compute_health_score
-from src.engine.reporter import build_report, render_text_report
+from src.backend.vectordb.store.chroma_client import SpecSentinelVectorStore
+from src.backend.engine.signal_extractor import OpenAPISignalExtractor
+from src.backend.engine.rule_matcher import RuleMatcher
+from src.backend.engine.scorer import compute_health_score
+from src.backend.engine.reporter import build_report, render_text_report
 
 
 def main():

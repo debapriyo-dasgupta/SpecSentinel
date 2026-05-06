@@ -35,7 +35,7 @@ SEED_FILES = {
 }
 
 SEED_DIR = Path(__file__).parent.parent.parent.parent / "data" / "rules"
-CHROMA_DB_PATH = Path(__file__).parent.parent.parent.parent / ".chromadb"
+CHROMA_DB_PATH = Path(__file__).parent.parent.parent.parent.parent / ".chromadb"
 
 
 class SpecSentinelVectorStore:

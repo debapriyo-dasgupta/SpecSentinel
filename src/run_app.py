@@ -29,7 +29,7 @@ def stream_output(process, prefix, output_queue):
 
 def start_backend():
     """Start the FastAPI backend server"""
-    backend_path = Path(__file__).parent / "src" / "api" / "app.py"
+    backend_path = Path(__file__).parent / "backend" / "api" / "app.py"
     print("🚀 Starting Backend API on http://localhost:8000...")
     return subprocess.Popen(
         [sys.executable, str(backend_path)],

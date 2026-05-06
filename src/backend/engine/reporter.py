@@ -7,8 +7,8 @@ Produces both dict (JSON-serializable) and human-readable text formats.
 
 import json
 from datetime import datetime
-from src.engine.rule_matcher import FindingGroup, RuleMatch
-from src.engine.scorer import HealthScore, CategoryScore
+from src.backend.engine.rule_matcher import FindingGroup, RuleMatch
+from src.backend.engine.scorer import HealthScore, CategoryScore
 
 
 def build_report(

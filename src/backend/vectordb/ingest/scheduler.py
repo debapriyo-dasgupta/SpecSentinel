@@ -19,8 +19,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from src.vectordb.ingest.scraper import ingest_all_sources, RULE_SOURCES
-from src.vectordb.store.chroma_client import SpecSentinelVectorStore
+from src.backend.vectordb.ingest.scraper import ingest_all_sources, RULE_SOURCES
+from src.backend.vectordb.store.chroma_client import SpecSentinelVectorStore
 
 logging.basicConfig(
     level=logging.INFO,

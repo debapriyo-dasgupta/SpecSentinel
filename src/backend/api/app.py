@@ -26,17 +26,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 
 # NEW: Import centralized logging
-from src.utils.logging_config import get_logger, PipelineLogger, log_performance
-from src.utils.logging_middleware import FastAPILoggingMiddleware
+from src.backend.utils.logging_config import get_logger, PipelineLogger, log_performance
+from src.backend.utils.logging_middleware import FastAPILoggingMiddleware
 
-from src.vectordb.store.chroma_client import SpecSentinelVectorStore
-from src.vectordb.ingest.scheduler import start_scheduler
-from src.engine.signal_extractor import OpenAPISignalExtractor
-from src.engine.rule_matcher import RuleMatcher
-from src.engine.scorer import compute_health_score
-from src.engine.reporter import build_report, render_text_report
-from src.engine.ai_agent_universal import UniversalAIAgent, is_any_llm_available, get_available_providers
-from src.engine.agents.orchestrator import AgentOrchestrator
+from src.backend.vectordb.store.chroma_client import SpecSentinelVectorStore
+from src.backend.vectordb.ingest.scheduler import start_scheduler
+from src.backend.engine.signal_extractor import OpenAPISignalExtractor
+from src.backend.engine.rule_matcher import RuleMatcher
+from src.backend.engine.scorer import compute_health_score
+from src.backend.engine.reporter import build_report, render_text_report
+from src.backend.engine.ai_agent_universal import UniversalAIAgent, is_any_llm_available, get_available_providers
+from src.backend.engine.agents.orchestrator import AgentOrchestrator
 
 # NEW: Use centralized logger
 logger = get_logger(__name__)

@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # NEW: Import centralized logging
-from src.utils.logging_config import get_logger
-from src.utils.logging_middleware import FlaskLoggingMiddleware
+from src.backend.utils.logging_config import get_logger
+from src.backend.utils.logging_middleware import FlaskLoggingMiddleware
 
 app = Flask(__name__)
 

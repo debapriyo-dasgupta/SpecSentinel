@@ -28,51 +28,61 @@ SpecSentinel is an intelligent API governance tool that automatically analyzes O
 
 ```
 SpecSentinel_IBM_Hackathon/
-├── src/                          # Source code
-│   ├── engine/                   # Core analysis engine
-│   │   ├── signal_extractor.py  # OpenAPI spec parser
-│   │   ├── rule_matcher.py      # Vector DB semantic search
-│   │   ├── scorer.py            # Health score calculator
-│   │   ├── reporter.py          # Report generator
-│   │   └── ai_agent.py          # 🤖 LLM-powered AI agent (NEW!)
+├── src/                          # Source code (all project files)
+│   ├── backend/                 # Backend source code
+│   │   ├── engine/              # Core analysis engine
+│   │   │   ├── signal_extractor.py  # OpenAPI spec parser
+│   │   │   ├── rule_matcher.py      # Vector DB semantic search
+│   │   │   ├── scorer.py            # Health score calculator
+│   │   │   ├── reporter.py          # Report generator
+│   │   │   ├── ai_agent.py          # 🤖 LLM-powered AI agent
+│   │   │   └── agents/              # Specialized agents
+│   │   │
+│   │   ├── vectordb/            # Vector database layer
+│   │   │   ├── store/
+│   │   │   │   └── chroma_client.py # ChromaDB wrapper
+│   │   │   └── ingest/
+│   │   │       ├── scraper.py       # Web scraper for rules
+│   │   │       └── scheduler.py     # Auto-refresh scheduler
+│   │   │
+│   │   ├── api/                 # REST API
+│   │   │   └── app.py          # FastAPI application
+│   │   │
+│   │   └── utils/               # Utilities
+│   │       ├── logging_config.py
+│   │       └── logging_middleware.py
 │   │
-│   ├── vectordb/                 # Vector database layer
-│   │   ├── store/
-│   │   │   └── chroma_client.py # ChromaDB wrapper
-│   │   └── ingest/
-│   │       ├── scraper.py       # Web scraper for rules
-│   │       └── scheduler.py     # Auto-refresh scheduler
+│   ├── frontend/                # Web Frontend
+│   │   ├── app.py              # Flask application
+│   │   ├── templates/
+│   │   │   └── index.html      # Main HTML page
+│   │   ├── static/
+│   │   │   ├── css/
+│   │   │   │   └── styles.css  # Styles and animations
+│   │   │   └── js/
+│   │   │       └── app.js      # Frontend logic & API integration
+│   │   └── README.md           # Frontend documentation
 │   │
-│   └── api/                      # REST API
-│       └── app.py               # FastAPI application
+│   ├── data/                    # Data files
+│   │   └── rules/              # Seed rule files
+│   │       ├── owasp_rules.json     # OWASP API Security rules
+│   │       ├── openapi_rules.json   # OpenAPI best practices
+│   │       └── governance_rules.json # Error/doc/governance rules
+│   │
+│   ├── requirements.txt         # Python dependencies
+│   ├── run_app.py              # Application launcher
+│   ├── .env.example            # Environment variables template
+│   └── SpecSentinelOpenAPI.yaml # OpenAPI specification
 │
-├── frontend/                     # Web Frontend
-│   ├── app.py                   # Flask application
-│   ├── templates/
-│   │   └── index.html           # Main HTML page
-│   ├── static/
-│   │   ├── css/
-│   │   │   └── styles.css       # Styles and animations
-│   │   └── js/
-│   │       └── app.js           # Frontend logic & API integration
-│   └── README.md                # Frontend documentation
+├── tests/                       # Test files
+│   ├── test_pipeline.py        # Integration test
+│   └── sample_bad_spec.yaml    # Test OpenAPI spec
 │
-├── data/                         # Data files
-│   └── rules/                   # Seed rule files
-│       ├── owasp_rules.json     # OWASP API Security rules
-│       ├── openapi_rules.json   # OpenAPI best practices
-│       └── governance_rules.json # Error/doc/governance rules
+├── docs/                        # Documentation
+│   └── SETUP.md                # Setup instructions
 │
-├── tests/                        # Test files
-│   ├── test_pipeline.py         # Integration test
-│   └── sample_bad_spec.yaml     # Test OpenAPI spec
-│
-├── docs/                         # Documentation
-│   └── SETUP.md                 # Setup instructions
-│
-├── requirements.txt              # Python dependencies
-├── .gitignore                   # Git ignore rules
-└── README.md                    # This file
+├── .gitignore                  # Git ignore rules
+└── README.md                   # This file
 ```
 
 ---
@@ -104,26 +114,35 @@ SpecSentinel_IBM_Hackathon/
    source venv/bin/activate
    ```
 
-3. **Install all dependencies (Backend + Frontend)**
+3. **Set up environment variables (Optional - for AI features)**
    ```bash
-   pip install -r requirements.txt
+   # Copy the example file
+   cp src/.env.example .env
+   
+   # Edit .env and add your API keys
+   # The .env file should be in the project root directory
    ```
 
-4. **Run the application (Single Command!)**
+4. **Install all dependencies (Backend + Frontend)**
    ```bash
-   python run_app.py
+   pip install -r src/requirements.txt
+   ```
+
+5. **Run the application (Single Command!)**
+   ```bash
+   python src/run_app.py
    ```
 
    This will start:
    - 🔧 Backend API on `http://localhost:8000`
    - 🌐 Frontend UI on `http://localhost:5000`
 
-5. **Open your browser**
+6. **Open your browser**
    ```
    http://localhost:5000
    ```
 
-6. **Stop the application**
+7. **Stop the application**
    ```
    Press Ctrl+C in the terminal
    ```
@@ -134,11 +153,11 @@ If you need to run them separately for development:
 
 ```bash
 # Terminal 1 - Backend API
-cd src/api
+cd src/backend/api
 python app.py
 
 # Terminal 2 - Frontend
-cd frontend
+cd src/frontend
 python app.py
 ```
 
@@ -227,14 +246,14 @@ SpecSentinel includes a modern web-based frontend for easy API specification ana
 
 **Terminal 1 - Start Backend:**
 ```bash
-cd src/api
+cd src/backend/api
 python app.py
 ```
 
 **Terminal 2 - Start Frontend:**
 ```bash
-cd frontend
-python -m http.server 8080
+cd src/frontend
+python app.py
 ```
 
 **Open Browser:**
@@ -256,13 +275,13 @@ http://localhost:8080
 - [Frontend README](frontend/README.md) - Complete documentation
 
 ```bash
-cd src/api
+cd src/backend/api
 python app.py
 ```
 
 Or using uvicorn directly:
 ```bash
-uvicorn src.api.app:app --reload --port 8000
+uvicorn src.backend.api.app:app --reload --port 8000
 ```
 
 The API will be available at `http://localhost:8000`
@@ -415,7 +434,7 @@ curl -X POST http://localhost:8000/refresh
 
 Or run the scheduler directly:
 ```bash
-python src/vectordb/ingest/scheduler.py --schedule startup_only
+python src/backend/vectordb/ingest/scheduler.py --schedule startup_only
 ```
 
 ---

@@ -7,7 +7,7 @@ maturity band and per-category breakdown.
 """
 
 from dataclasses import dataclass, field
-from src.engine.rule_matcher import FindingGroup
+from src.backend.engine.rule_matcher import FindingGroup
 
 
 # ── Scoring weights per category (must sum to 100) ────────────────────────────

@@ -17,7 +17,7 @@ from .governance_agent import GovernanceAgent
 from .base_agent import AgentAnalysis
 
 # Use centralized logging
-from src.utils.logging_config import get_logger
+from src.backend.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 

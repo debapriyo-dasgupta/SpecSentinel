@@ -9,9 +9,9 @@ and returns matched rules with similarity scores.
 from dataclasses import dataclass, field
 from typing import Optional
 
-from src.engine.signal_extractor import Signal
-from src.vectordb.store.chroma_client import SpecSentinelVectorStore
-from src.utils.logging_config import get_logger
+from src.backend.engine.signal_extractor import Signal
+from src.backend.vectordb.store.chroma_client import SpecSentinelVectorStore
+from src.backend.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
